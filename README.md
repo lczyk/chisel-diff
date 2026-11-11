@@ -28,16 +28,22 @@ a line is `-<path>` for an entry lost, `+<path>` for one gained and `~<path>: <b
 
 a base the archive has moved under, a slice naming a path its package no longer ships, does not cut, and the PR that drops the path is routine. so the base is cut again without the entries chisel named, and each is reported as `!<path>: no content`, neither lost nor gained.
 
-the two sides are named as for `git diff`:
+the two sides are named as for `git diff`, except with none:
 
 ```shell
+chisel-diff                     # what this branch would change as a PR
 chisel-diff HEAD                # the uncommitted edits
 chisel-diff main...             # this branch since it left main
 chisel-diff --merge-base main   # the same, with the uncommitted edits
 chisel-diff --cached HEAD       # what is staged
 chisel-diff ubuntu-24.04..ubuntu-26.04 openssl
 chisel-diff --no-index ./a ./b  # two release dirs, no git
+chisel-diff --release ubuntu-26.04 <sha>..<sha>  # upstream, no checkout
 ```
+
+with no revisions the files on disk are compared from where `HEAD` parted from the release branch `chisel.yaml` is of, `ubuntu-26.10` say: the local branch, else the one of the remote for canonical/chisel-releases, else fetched. a stale local branch gets a warning. `--release` takes a checkout or a release name, whose branch of canonical/chisel-releases is kept in a bare clone under `~/.cache/chisel-diff` and whose tip is then `HEAD`. a release name in a checkout that lacks the branch is read from that clone too, and the checkout is left as it was.
+
+a comparison across ubuntu releases, by the version in each side's `chisel.yaml`, is refused without `-x` / `--x-release`, and with it cuts only the packages or `--slice` named (`--slice=all` is the whole release). some release branches share no history, so with `-x` a missing merge base compares the tips.
 
 without packages, every package whose file differs between the two sides is looked at. a package can be given as the path of its file (`slices/openssl.yaml`), so tab completion works. `--slice` picks slices by name, changed or not. `--name-status` names the slices and their states and cuts nothing, which takes half a second and no network.
 

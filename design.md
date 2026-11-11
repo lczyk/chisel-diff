@@ -37,6 +37,7 @@ the two sides are named the way `git diff` names them, by the first argument, an
 
 given | base | head
 ---|---|---
+nothing | the merge base of `HEAD` and the branch of the release `chisel.yaml` is of | the working tree
 `A` | `A` | the working tree
 `A..B` | `A` | `B`
 `A...B` | the merge base of `A` and `B` | `B`
@@ -44,6 +45,8 @@ given | base | head
 `--cached A` | `A` | the index
 `--cached --merge-base A` | the merge base of `A` and `HEAD` | the index
 `--no-index <dir> <dir>` | the first dir | the second dir
+`--release=<name>`, nothing | the first parent of the branch tip | the branch tip
+`--release=<name> A` | `A` | the branch tip
 
 `--staged` is `--cached`, as in git. `--no-index` takes two release dirs in place of the revisions and runs no git at all, so it works outside a checkout. where it is narrower than git, it is so that the first argument is always the revisions and the exit codes stay the tool's own: `--cached` does not default to `HEAD`, `--no-index` is never implied and takes two directories only, and it does not turn differences into exit 1 as git's does. `--cached` with a range, and `--no-index` with `--cached`, `--merge-base` or `--release`, are usage errors.
 
@@ -51,7 +54,7 @@ an empty side of `..` or `...` is `HEAD`, so `A...` is the merge base of `A` and
 
 a check of a branch wants the merge base, `A...B` in ci and `--merge-base A` at a desk, so that work landed on `A` since branching is not read as this change undoing it. a bare `A` or `A..B` takes `A` at its tip, which is what two release branches of different ubuntu versions need. when the base is a tip and not an ancestor of the head (of `HEAD`, when the head is the working tree or the index), a notice says so and names the two merge-base forms.
 
-no merge base (a shallow clone, unrelated histories) is an error that names the ways out: fetch more history (`fetch-depth: 0` in a workflow), or compare tips with `..`. several merge bases are handled as git handles them: `A...B` uses the one git picks, with a notice, and `--merge-base` is an error (`multiple merge bases found`).
+no merge base is an error that names the way out: in a shallow clone, fetch more history (`fetch-depth: 0` in a workflow), else compare the tips with `..`. with `-x` (see "across releases") unrelated histories compare their tips, with a notice, since some release branches have roots of their own: 20.04, 23.10 and 24.04 do, 22.04 to 23.04 share one, and 24.10 on share another. a shallow clone keeps the error with `-x` too, since there the history is missing, not unrelated. tips compared with `..` that share no history get a notice that says so, not one that suggests a merge base. several merge bases are handled as git handles them: `A...B` uses the one git picks, with a notice, and `--merge-base` is an error (`multiple merge bases found`).
 
 a side becomes a dir holding what chisel reads of a release: `chisel.yaml`, `slices/` and, where it exists, `bin-slices/`, which chisel reads for format v3.
 
@@ -61,6 +64,22 @@ a side becomes a dir holding what chisel reads of a release: `chisel.yaml`, `sli
 - a `--no-index` dir is copied like the working tree.
 
 a side with no `slices/` gets an empty one, since chisel wants the directory.
+
+#### no revisions
+
+with no revisions the question is what a pull request of this checkout would change: the files on disk, staged or not, committed or not, against where `HEAD` parted from the release branch. that branch is `ubuntu-<version>`, the version of the `ubuntu` archive in the working tree's `chisel.yaml` (or of every archive, when they agree), looked up as a branch, never a tag: the local branch, else the one of the remote whose url is canonical/chisel-releases, else the clone below. a notice says which, and the remote's says when its tip was committed, since nothing fetches it. `--merge-base <ref>` picks another branch. the first positional is the revisions unless `--` comes before it or it ends in `.yaml`, so `chisel-diff slices/openssl.yaml` and `chisel-diff -- openssl` name a package with no revisions.
+
+a local release branch used as a base is checked against the remote's: behind it, ahead of it or parted from it is a warning, since a stale base reads what landed since as part of the change.
+
+#### release names
+
+`--release` is a checkout, or a release name such as `ubuntu-26.04` as chisel and chisel-coverage take it. a name is a branch of canonical/chisel-releases, and a tarball of it, which chisel itself fetches, has no history for revisions. so canonical/chisel-releases is kept as a bare clone of its branches in `$XDG_CACHE_HOME/chisel-diff/chisel-releases.git` (else `~/.cache/...`), cloned once (beside it, then moved in whole) and fetched each run. a fetch that fails leaves it as it was, with a warning. the branch tip is then `HEAD`, and `@` too, and is the head side where a checkout's would be the working tree. `--cached` is an error, and so is a reflog of `HEAD`, which the clone does not keep. with no revisions the tip is compared with its first parent, the last change merged, with a warning, since that is rarely the question.
+
+in a checkout, a release name that is no revision of it is looked for in the same order as above, the remote's branch and then the clone. the clone is not fetched into the checkout: git is run with the clone's objects as `GIT_ALTERNATE_OBJECT_DIRECTORIES`, added to any inherited ones, so the checkout gains no ref and no object.
+
+#### across releases
+
+a side's release is the version in its `chisel.yaml`, as above. when both sides have one and they differ, the comparison is across releases, and refused (exit 2) without `-x` / `--x-release`: it is rarely meant, and nearly every package file and `chisel.yaml` differ, so the default would cut most of the release. with `-x`, only what is named is cut: packages, or `--slice` picks looked for in every package on either side (`--slice=all` is the whole release, ~1900 slices and some 15 minutes an arch between 24.04 and 26.04), and neither is an error. the slices cut for `prefer` are left out, and a notice gives the number to cut. `-x` with one release is no change, and a side whose version cannot be read is not checked.
 
 `--release` may be a subdirectory of its git repo, and paths are taken relative to it. each side is validated once with `chisel find --release <dir>` and a query matching nothing, 0.1s and no network. a side that does not validate (an essential naming a deleted slice, a path conflict, a format this chisel does not know) is an error before any cut.
 
@@ -184,19 +203,23 @@ sigint or sigterm stops the run as in the sister tools: no new cut starts, runni
 ## cli
 
 ```
-chisel-diff [flags] <revisions> [<package>...]
+chisel-diff [flags] [<revisions>] [--] [<package>...]
 chisel-diff [flags] --no-index <dir> <dir> [<package>...]
   <revisions>                  <a> for <a> against the working tree, <a>..<b>,
                                or <a>...<b> for the merge base of the two
-                               against <b>, as in git diff
+                               against <b>, as in git diff (default: from
+                               the merge base with the release branch)
   <package>                    a package, by name or by the path of its file
                                (default: every package whose file differs)
-      --release=<dir>          chisel-releases checkout (default: .)
+      --release=<dir|name>     chisel-releases checkout, or a release name like
+                               ubuntu-26.04 (default: .)
       --merge-base             with a single <a>: compare from its merge base
                                with HEAD
       --cached, --staged       with a single <a>: compare to the index, not
                                the working tree
       --no-index               compare two release dirs, without git
+  -x, --x-release              allow a comparison across ubuntu releases,
+                               which cuts only the packages or --slice named
       --arch=<a>[,<a>...]      architectures to compare; "all" for every one
                                (default: host)
       --slice=<s>[,<s>...]     these slices, bare or <package>_<slice>,
@@ -217,7 +240,7 @@ chisel-diff [flags] --no-index <dir> <dir> [<package>...]
 
 flags are parsed by go-flags as in the sister tools, list flags split on commas and repeat, `version` and `help` as the first argument are aliases. `chisel` is `$CHISEL` or on `PATH`, `git` is `$GIT` or on `PATH`.
 
-the revisions have no default, and the first argument is always them, so a package is never taken for a revision or the other way round. `chisel-diff HEAD` is what the uncommitted edits do. a check that lost its base and compared the head with itself would pass without having looked.
+the first argument is the revisions, unless `--` comes first or it ends in `.yaml`, so a package is never taken for a revision or the other way round. with none, the base is where `HEAD` parted from the release branch (see "no revisions"), never `HEAD` itself: a check that lost its base and compared the head with itself would pass without having looked. `chisel-diff HEAD` is what the uncommitted edits do.
 
 exit codes:
 
@@ -226,7 +249,7 @@ exit codes:
 - 2 -- the comparison could not be made: usage, not a git checkout (without `--no-index`), an unknown ref, no merge base, a side that does not validate, an unknown package or slice, io, a cut that failed on either side, an archive that moved. the report is still rendered with what was found, in text and in json, and 2 wins over 1.
 - 130 -- interrupted.
 
-notices go to stderr: `chisel.yaml` differs, the revision the base was resolved to when it is a merge base, a second merge base that was not used, and tips compared with a base that is not an ancestor of the head.
+notices go to stderr: `chisel.yaml` differs, the revision the base was resolved to when it is a merge base, a second merge base that was not used, tips compared with a base that is not an ancestor of the head or shares no history with it, where a release branch was found, and the number of slices to cut across releases. warnings, for what looks like a mistake and still runs, go there too, as `warning: ...`: a stale local release branch, a release name with no revisions, a clone that could not be fetched.
 
 ## report
 
@@ -354,7 +377,10 @@ step 1 waits for `pkg/pool`: the PR of `design-pkg.md` and its `pkg/` tag come f
 
 ## decided
 
-- the sides are named as `git diff` names them, one required argument, with nothing bent: a bare `A` is the tip of `A` against the working tree and `A...` ends at `HEAD`. this replaced `--base`, `--head` and `--tip`.
+- the sides are named as `git diff` names them, with nothing bent: a bare `A` is the tip of `A` against the working tree and `A...` ends at `HEAD`. this replaced `--base`, `--head` and `--tip`.
+- with no revisions it departs from `git diff` on purpose: the files on disk against the merge base with the release branch, what a pull request would change. a release name compares its tip with its first parent, with a warning. the general rule: work, and warn where the circumstances are unusual and likely a mistake.
+- `--release` takes a release name as in chisel-coverage, from a bare clone of canonical/chisel-releases kept in the cache, so two shas of upstream can be compared without a checkout. a release branch a checkout lacks comes from its remote or that clone, never fetched into the checkout. no `--onto`: `--merge-base <ref>` already picks the branch.
+- a comparison across releases needs `-x` and cuts only what is named. more cases are likely to come up there.
 - a `chisel.yaml` change with no package named compares nothing and exits 0 with a notice. the tool compares slices.
 - the flag is `--fail-missing`, next to chisel-coverage's `--fail-uncovered`.
 - `--name-status` and packages named by path are in the first version. the path spelling goes to chisel-file and chisel-coverage too, as one helper in `chisel-coverage/pkg`, in a small PR of its own and not in the `pkg/pool` one.
