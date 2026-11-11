@@ -276,7 +276,7 @@ linux-firmware [amd64, arm64]: not available (skipped archives: ubuntu-esm-infra
 
 a line is `-<path>` lost, `+<path>` gained, `~<path>: <base> -> <head>` changed or `!<path>: no content` deleted from the base, in that order, each sorted by path, so `grep '^-'` is the list of what went missing. an entry is described as `file <mode>`, `dir`, `symlink to <target>`, or `other`. the header is the sister tools' (`<package> <version> <slice> [arches]`), with both versions as `<base> -> <head>` where they differ on purpose, and a state after a colon for a block with no lines of its own. an `added` or `removed` slice is one line with no version and no arches, since it was not cut, unless `--slice` forced it, and then it is a block like any other. colour as in chisel-coverage, only on a terminal with `NO_COLOR` unset: red `-`, green `+`, yellow `~` and `!`.
 
-`-v` ends with the summary line of the pool and one more: `12 slices compared, 3 differ, 5 lost, 40 gained, 2 changed`. slices are counted once each whatever the number of arches, one that differs on any arch differs, and entries are counted per arch before the text report leaves any directory out.
+`-v` ends with the summary line of the pool and one more: `12 slices compared, 3 differ, 5 lost, 40 gained, 2 changed`. slices are counted once each whatever the number of arches, one that differs on any arch differs, and entries are counted per arch as the text report shows them, so a directory left out there is not counted.
 
 `--json` is the same folding:
 
