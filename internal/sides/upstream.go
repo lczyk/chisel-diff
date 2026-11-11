@@ -154,13 +154,19 @@ func (r *resolver) stale(rev, sha string) {
 	}
 	behind, _ := r.g.line("rev-list", "--count", sha+".."+up)
 	ahead, _ := r.g.line("rev-list", "--count", up+".."+sha)
+	commits := func(n string) string {
+		if n == "1" {
+			return "1 commit"
+		}
+		return n + " commits"
+	}
 	switch {
 	case ahead == "0":
-		r.s.warnf("the local branch %s is %s commits behind %s, so what landed there since may read as part of this change: use %s, or update the branch", rev, behind, ref, ref)
+		r.s.warnf("the local branch %s is %s behind %s, so what landed there since may read as part of this change: use %s, or update the branch", rev, commits(behind), ref, ref)
 	case behind == "0":
-		r.s.warnf("the local branch %s has %s commits that %s does not", rev, ahead, ref)
+		r.s.warnf("the local branch %s has %s that %s does not", rev, commits(ahead), ref)
 	default:
-		r.s.warnf("the local branch %s and %s have parted, %s and %s commits each: use %s, or update the branch", rev, ref, ahead, behind, ref)
+		r.s.warnf("the local branch %s and %s have parted, %s and %s on each: use %s, or update the branch", rev, ref, commits(ahead), commits(behind), ref)
 	}
 }
 

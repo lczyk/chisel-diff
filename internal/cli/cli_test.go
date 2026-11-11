@@ -270,8 +270,8 @@ func TestASideChiselRefusesIsAnError(t *testing.T) {
 	f := flags{Release: dir, NameStatus: true}
 	spec, pkgs, _ := f.spec([]string{"HEAD"})
 	_, err := run(context.Background(), f, spec, pkgs, []string{"amd64"}, io.Discard)
-	assert.Error(t, err, "the head is not a release chisel accepts")
-	assert.Error(t, err, "chisel.yaml: no good")
+	assert.Error(t, err, "the head is not a release chisel accepts: chisel.yaml: no good")
+	assert.That(t, !strings.Contains(err.Error(), "chisel-coverage-nothing"), err.Error())
 }
 
 func TestMainExitCodes(t *testing.T) {

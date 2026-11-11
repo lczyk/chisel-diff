@@ -100,7 +100,7 @@ bash 5.2-1 bins [arm64]
 bash [riscv64]: not available
 `)
 
-	assert.Equal(t, summary(res), "3 slices compared, 2 differ, 7 lost, 5 gained, 0 changed")
+	assert.Equal(t, summary(res), "3 slices compared, 2 differ, 5 lost, 5 gained, 0 changed")
 }
 
 func TestRenderChanged(t *testing.T) {

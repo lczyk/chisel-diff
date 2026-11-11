@@ -126,12 +126,8 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 	} else {
 		defer s.Remove()
 	}
-	for _, n := range s.Notices {
-		notef("%s", n)
-	}
-	for _, w := range s.Warnings {
-		notef("warning: %s", w)
-	}
+	// Refused before the notices, which would only be about how the sides
+	// were found.
 	cross := s.Base.Release != "" && s.Head.Release != "" && s.Base.Release != s.Head.Release
 	if cross && !f.XRelease {
 		return 0, fmt.Errorf("the base is %s and the head %s: -x / --x-release compares across releases", s.Base.Release, s.Head.Release)
@@ -139,11 +135,17 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 	if cross && len(pkgs) == 0 && len(f.Slices) == 0 {
 		return 0, errors.New("a comparison across releases cuts only what is named: give packages, --slice=<s>, or --slice=all for every slice")
 	}
+	for _, n := range s.Notices {
+		notef("%s", n)
+	}
+	for _, w := range s.Warnings {
+		notef("warning: %s", w)
+	}
 	// Chisel reads and checks a whole release for a find that matches
 	// nothing, without the network.
 	for name, dir := range map[string]string{"base": s.Base.Dir, "head": s.Head.Dir} {
 		if err := runner.Fetch(ctx, dir); err != nil {
-			return 0, fmt.Errorf("the %s is not a release chisel accepts: %w", name, err)
+			return 0, fmt.Errorf("the %s is not a release chisel accepts: %s", name, chiselSays(err))
 		}
 	}
 	base, err := changes.Load(s.Base.Dir)
@@ -272,6 +274,25 @@ func (f flags) spec(rest []string) (sides.Spec, []string, error) {
 		pkgs[i] = packageslicesfile.Package(arg)
 	}
 	return spec, pkgs, nil
+}
+
+// chiselSays is what chisel said of a release it refused: its error lines,
+// without the temp dir and the query it was run with.
+func chiselSays(err error) string {
+	var ce *cut.Error
+	if !errors.As(err, &ce) {
+		return err.Error()
+	}
+	var said []string
+	for _, line := range strings.Split(ce.Output, "\n") {
+		if msg, ok := strings.CutPrefix(strings.TrimSpace(line), "error: "); ok {
+			said = append(said, msg)
+		}
+	}
+	if len(said) == 0 {
+		return err.Error()
+	}
+	return strings.Join(said, "; ")
 }
 
 // gitBinary returns the git binary to run: $GIT, else "git" on PATH.

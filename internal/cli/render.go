@@ -270,7 +270,8 @@ func item(f diff.Finding, arch string) fold.Item {
 
 // summary is the line -v ends with: slices are counted once each whatever
 // the number of architectures, one that differs on any of them differs, and
-// entries are counted per architecture before any directory is left out.
+// entries are counted per architecture as the text report shows them, a
+// directory left out when something under it is in the same state.
 func summary(res *diff.Result) string {
 	compared, differ, lost, gained, changed := 0, 0, 0, 0, 0
 	for _, s := range res.Slices {
@@ -280,6 +281,9 @@ func summary(res *diff.Result) string {
 				was = true
 			}
 			for _, f := range c.Findings {
+				if f.Dir && under(c.Findings, f) {
+					continue
+				}
 				switch f.Change {
 				case diff.Lost:
 					lost++

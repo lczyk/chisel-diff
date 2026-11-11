@@ -201,14 +201,14 @@ func TestBareInACheckout(t *testing.T) {
 	assert.Equal(t, s.Base.Ref, "ubuntu-26.04")
 	assert.Equal(t, s.Base.Rev, r26)
 	assert.Len(t, s.Warnings, 1)
-	assert.ContainsString(t, s.Warnings[0], "the local branch ubuntu-26.04 is 1 commits behind canonical/ubuntu-26.04")
+	assert.ContainsString(t, s.Warnings[0], "the local branch ubuntu-26.04 is 1 commit behind canonical/ubuntu-26.04")
 	s.Remove()
 
 	// Ahead of it, and parted from it.
 	c.git("branch", "-q", "-f", "ubuntu-26.04", "HEAD")
 	s, err = Resolve(context.Background(), named(up, cache, c.dir, "ubuntu-26.04"))
 	assert.NoError(t, err)
-	assert.ContainsString(t, s.Warnings[0], "has 1 commits that canonical/ubuntu-26.04 does not")
+	assert.ContainsString(t, s.Warnings[0], "has 1 commit that canonical/ubuntu-26.04 does not")
 	s.Remove()
 	c.git("branch", "-q", "-f", "ubuntu-26.04", r26)
 	c.git("checkout", "-q", "--", "slices/bash.yaml")
@@ -219,7 +219,7 @@ func TestBareInACheckout(t *testing.T) {
 	c.write("slices/bash.yaml", "bash on disk\n")
 	s, err = Resolve(context.Background(), named(up, cache, c.dir, "ubuntu-26.04..HEAD"))
 	assert.NoError(t, err)
-	assert.ContainsString(t, s.Warnings[0], "have parted, 1 and 1 commits each")
+	assert.ContainsString(t, s.Warnings[0], "have parted, 1 commit and 1 commit on each")
 	s.Remove()
 }
 
