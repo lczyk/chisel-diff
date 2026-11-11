@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -21,7 +22,7 @@ import (
 // <head>" is an entry on both sides that changed, "!<path>: no content"
 // is an entry deleted from the base because the archive no longer has it. With group unset every
 // architecture is a block of its own with its real paths.
-func renderText(w io.Writer, res *diff.Result, group bool) {
+func renderText(w io.Writer, res *diff.Result, group bool, st style) {
 	absent := map[string]bool{} // packages whose own absence was told
 	for _, s := range res.Slices {
 		if len(s.Cuts) == 0 {
@@ -57,9 +58,9 @@ func renderText(w io.Writer, res *diff.Result, group bool) {
 			if len(g.Entries) == 0 {
 				continue
 			}
-			fmt.Fprintf(w, "%s%s %s [%s]\n", s.Package, versions[g.Arches[0]], s.Name, strings.Join(g.Arches, ", "))
+			fmt.Fprintf(w, "%s%s%s%s %s [%s]\n", st.name, s.Package, st.reset, versions[g.Arches[0]], s.Name, strings.Join(g.Arches, ", "))
 			for _, line := range lines(g) {
-				fmt.Fprintln(w, line)
+				fmt.Fprintln(w, st.line(line))
 			}
 		}
 		for _, n := range order {
@@ -75,6 +76,41 @@ func renderText(w io.Writer, res *diff.Result, group bool) {
 			fmt.Fprintf(w, "%s %s [%s]: %s\n", s.Package, s.Name, strings.Join(notes[n], ", "), n)
 		}
 	}
+}
+
+// style colours the text report. The zero value colours nothing.
+type style struct {
+	name, red, green, yellow, reset string
+}
+
+// colours is the style for a terminal: a little, not a lot.
+var colours = style{name: "\x1b[1;34m", red: "\x1b[31m", green: "\x1b[32m", yellow: "\x1b[33m", reset: "\x1b[0m"}
+
+// styleFor picks colours when w is a terminal and NO_COLOR is unset or empty
+// (https://no-color.org), else nothing.
+func styleFor(w io.Writer) style {
+	if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
+		return style{}
+	}
+	f, ok := w.(*os.File)
+	if !ok {
+		return style{}
+	}
+	fi, err := f.Stat()
+	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		return style{}
+	}
+	return colours
+}
+
+// line colours a finding by its sign: red lost, green gained, yellow
+// changed or deleted from the base.
+func (st style) line(l string) string {
+	c := map[byte]string{'-': st.red, '+': st.green, '~': st.yellow, '!': st.yellow}[l[0]]
+	if c == "" {
+		return l
+	}
+	return c + l + st.reset
 }
 
 // ownAbsence starts the note of a slice whose own package is on neither

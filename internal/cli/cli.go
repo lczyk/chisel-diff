@@ -192,7 +192,7 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 			return 0, err
 		}
 	} else {
-		renderText(out, result, !f.NoGroup)
+		renderText(out, result, !f.NoGroup, styleFor(out))
 	}
 	if len(f.Verbose) >= 1 {
 		notef("%s", summary(result))

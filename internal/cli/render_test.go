@@ -54,7 +54,7 @@ func TestRenderText(t *testing.T) {
 		),
 	}}
 	var out bytes.Buffer
-	renderText(&out, res, true)
+	renderText(&out, res, true, style{})
 	assert.Equal(t, out.String(), `bash 5.2-1 bins [amd64, arm64]
 -/etc/bash/rc
 -/usr/lib/<arch>-linux-<gnu>/b.so
@@ -80,12 +80,12 @@ ruby libs [s390x]: error
 	renderText(&out, &diff.Result{Slices: []diff.Slice{
 		sl("pro", "one", changes.Changed, diff.Cut{Arch: "amd64", Outcome: diff.Unavailable, Base: pro, Head: pro}),
 		sl("pro", "two", changes.Changed, diff.Cut{Arch: "amd64", Outcome: diff.Unavailable, Base: skipped, Head: skipped}),
-	}}, true)
+	}}, true, style{})
 	assert.Equal(t, out.String(), "pro [amd64]: not available (skipped archives: esm-apps)\n")
 
 	// Ungrouped: a block per architecture with its real paths.
 	out.Reset()
-	renderText(&out, &diff.Result{Slices: res.Slices[:1]}, false)
+	renderText(&out, &diff.Result{Slices: res.Slices[:1]}, false, style{})
 	assert.Equal(t, out.String(), `bash 5.2-1 bins [amd64]
 -/etc/bash/rc
 -/usr/lib/x86_64-linux-gnu/b.so
@@ -120,7 +120,7 @@ func TestRenderChanged(t *testing.T) {
 			changed("/usr/bin/md5sum", false, file(0755), link("../lib/aarch64-linux-gnu/md5sum"))),
 	)}}
 	var out bytes.Buffer
-	renderText(&out, res, true)
+	renderText(&out, res, true, style{})
 	// A symlink target that names the architecture folds like a path.
 	assert.Equal(t, out.String(), `coreutils 9.4 bins [amd64, arm64]
 -/usr/bin/basename
@@ -136,13 +136,23 @@ func TestRenderChanged(t *testing.T) {
 	renderText(&out, &diff.Result{Slices: []diff.Slice{sl("apparmor", "profiles", changes.Changed, diff.Cut{
 		Arch: "amd64", Outcome: diff.HeadNotAvailable, Findings: []diff.Finding{{Path: "/etc/apparmor.d/busybox", Change: diff.NoContent}},
 		Base: diff.Side{Status: diff.WasCut, Version: "4.0", Pruned: []string{"/etc/apparmor.d/busybox"}}, Head: diff.Side{Status: diff.NotAvailable, Missing: "apparmor"},
-	})}}, true)
+	})}}, true, style{})
 	assert.Equal(t, out.String(), "apparmor 4.0 profiles [amd64]\n!/etc/apparmor.d/busybox: no content\napparmor profiles [amd64]: head not available\n")
 
 	out.Reset()
 	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, res.Slices[:1], true))
 	assert.ContainsString(t, out.String(), `{"path":"/usr/bin/su","change":"changed","arches":["amd64","arm64"],"base":{"kind":"file","mode":"4755"},"head":{"kind":"file","mode":"0755"}}`)
 	assert.ContainsString(t, out.String(), `{"path":"/var/run/","change":"changed","arches":["amd64","arm64"],"base":{"kind":"dir"},"head":{"kind":"symlink","target":"/run"}}`)
+}
+
+func TestRenderColoured(t *testing.T) {
+	res := &diff.Result{Slices: []diff.Slice{sl("bash", "bins", changes.Changed,
+		compared("amd64", "5.2", lost("/a"), gained("/b"), diff.Finding{Path: "/c", Change: diff.NoContent}))}}
+	var out bytes.Buffer
+	renderText(&out, res, true, colours)
+	assert.Equal(t, out.String(), "\x1b[1;34mbash\x1b[0m 5.2 bins [amd64]\n\x1b[31m-/a\x1b[0m\n\x1b[32m+/b\x1b[0m\n\x1b[33m!/c: no content\x1b[0m\n")
+	// Not a terminal: no colour.
+	assert.Equal(t, styleFor(&out), style{})
 }
 
 func TestRenderJSON(t *testing.T) {
