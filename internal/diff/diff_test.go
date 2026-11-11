@@ -23,7 +23,9 @@ import (
 // with fake/na-dep/<slice> reaches a package that is in none (the file
 // names it), a slice with fake/fail/<slice> fails. fake/version/<package>
 // is the version of the deb fetched, 1.0 without. Every cut appends
-// "<arch> <slice> <release dir's name>" to $FAKE_LOG.
+// "<arch> <slice> <release dir's name>" to $FAKE_LOG. It writes no manifest:
+// a cut with the slice that asks for one fails as chisel does for a package
+// with no sha256.
 const fakeChisel = `#!/bin/sh
 while [ $# -gt 1 ]; do
   case "$1" in
@@ -36,6 +38,9 @@ done
 slice="$1"
 pkg="${slice%%_*}"
 printf '%s %s %s\n' "$arch" "$slice" "$(basename "$release")" >> "$FAKE_LOG"
+case "$slice" in *_chisel-diff-manifest)
+  echo 'error: internal error: invalid manifest: package "base-files" missing sha256' >&2; exit 1;;
+esac
 if [ -f "$release/fake/na/$arch/$pkg" ]; then
   if [ -s "$release/fake/na/$arch/$pkg" ]; then
     echo "Archive \"$(cat "$release/fake/na/$arch/$pkg")\" ignored: credentials not found" >&2
@@ -350,6 +355,25 @@ func TestAFailedCutIsAnError(t *testing.T) {
 	// The package's other slices are still compared.
 	assert.Equal(t, slice(t, res, "bash_config").Cuts[0].Outcome, Compared)
 	assert.That(t, !res.Missing())
+}
+
+func TestNoManifestStopsTheRun(t *testing.T) {
+	f := setup(t)
+	f.pkg(f.base, "bash", "bins")
+	f.pkg(f.head, "bash", "bins")
+	b, err := changes.Load(f.base)
+	assert.NoError(t, err)
+	h, err := changes.Load(f.head)
+	assert.NoError(t, err)
+	plan, err := changes.Compare(b, h, nil, nil)
+	assert.NoError(t, err)
+	_, err = Run(context.Background(), Options{Base: f.base, Head: f.head, Arches: []string{"amd64", "arm64"}, Runner: f.runner, Origins: true}, plan, nil)
+	assert.Error(t, err, `chisel cannot write the manifest the slices each entry comes from are read from, for the base on amd64: internal error: invalid manifest: package "base-files" missing sha256`)
+	// The lead architecture only: the run stops before the rest.
+	assert.That(t, len(f.cuts()) > 0)
+	for _, c := range f.cuts() {
+		assert.That(t, strings.HasPrefix(c, "amd64 "), c)
+	}
 }
 
 func TestABaseThatCannotBePrunedIsAnError(t *testing.T) {

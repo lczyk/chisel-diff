@@ -104,6 +104,7 @@ func TestSpec(t *testing.T) {
 		"--name-status cuts nothing, so it can": {flags{NameStatus: true, FailMissing: true}, []string{"HEAD"}},
 		"--tree draws the text report":          {flags{Tree: true, JSON: true}, []string{"HEAD"}},
 		"--tree draws the text report, so":      {flags{Tree: true, NameStatus: true}, []string{"HEAD"}},
+		"nothing to say --packages of":          {flags{Packages: "packages", NameStatus: true}, []string{"HEAD"}},
 	} {
 		_, _, err := c.f.spec(c.rest)
 		assert.Error(t, err, want)

@@ -39,6 +39,7 @@ type flags struct {
 	NameStatus  bool     `long:"name-status" description:"name the slices and their states, cut nothing"`
 	NoGroup     bool     `long:"no-group" description:"one block per architecture with its real paths"`
 	Tree        bool     `short:"T" long:"tree" description:"draw each block's entries as a tree of their paths"`
+	Packages    string   `short:"P" long:"packages" optional:"yes" optional-value:"packages" choice:"packages" choice:"slices" description:"end each entry with the packages it comes from, as chisel's manifest says; =slices for the slices"`
 	JSON        bool     `long:"json" description:"machine-readable output, folded"`
 	Keep        bool     `long:"keep" description:"keep the snapshots and rootfs dirs"`
 	Jobs        int      `short:"j" long:"jobs" value-name:"<n>" default:"-1" description:"cuts to run at once; -1 for one per cpu"`
@@ -190,7 +191,7 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 			for _, sl := range res.Reported() {
 				named = append(named, diff.Slice{Slice: sl})
 			}
-			return 0, renderJSON(out, runInfo(runner.Bin, spec.Release, spec, s, res), res, named, !f.NoGroup)
+			return 0, renderJSON(out, runInfo(runner.Bin, spec.Release, spec, s, res), res, named, !f.NoGroup, false)
 		}
 		for _, sl := range res.Reported() {
 			fmt.Fprintf(out, "%s: %s\n", sl.Shown(), sl.State)
@@ -202,6 +203,7 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 		Head:       s.Head.Dir,
 		Arches:     arches,
 		OneArchive: !res.ChiselYAMLDiffers,
+		Origins:    f.Packages != "",
 		Keep:       f.Keep,
 		Jobs:       f.Jobs,
 		Cache:      cache.Dir(),
@@ -216,11 +218,11 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 		return 0, err
 	}
 	if f.JSON {
-		if err := renderJSON(out, runInfo(runner.Bin, spec.Release, spec, s, res), res, result.Slices, !f.NoGroup); err != nil {
+		if err := renderJSON(out, runInfo(runner.Bin, spec.Release, spec, s, res), res, result.Slices, !f.NoGroup, f.Packages != ""); err != nil {
 			return 0, err
 		}
 	} else {
-		renderText(out, result, !f.NoGroup, f.Tree, styleFor(out))
+		renderText(out, result, !f.NoGroup, f.Tree, f.Packages, styleFor(out))
 	}
 	if len(f.Verbose) >= 1 {
 		notef("%s", summary(result, styleFor(os.Stderr)))
@@ -243,6 +245,9 @@ func (f flags) spec(rest []string) (sides.Spec, []string, error) {
 	spec := sides.Spec{Release: f.Release, MergeBase: f.MergeBase, Cached: f.Cached || f.Staged, NoIndex: f.NoIndex, Git: gitBinary()}
 	if f.Tree && (f.JSON || f.NameStatus) {
 		return spec, nil, errors.New("--tree draws the text report, so it does not go with --json or --name-status")
+	}
+	if f.NameStatus && f.Packages != "" {
+		return spec, nil, errors.New("--name-status cuts nothing, so there is nothing to say --packages of")
 	}
 	if f.NameStatus && f.FailMissing {
 		return spec, nil, errors.New("--name-status cuts nothing, so it cannot be a check: drop --fail-missing")

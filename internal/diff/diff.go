@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,12 +29,16 @@ type Options struct {
 	// OneArchive says both sides are expected to see the same debs: it is
 	// not set when chisel.yaml differs, where another archive is the point.
 	OneArchive bool
-	Keep       bool
-	Jobs       int
-	Cache      string
-	Runner     *cut.Runner
-	Log        io.Writer
-	Verbose    io.Writer
+	// Origins has every cut write chisel's manifest, through a slice added
+	// to the package in the release dirs, which must be copies, and has
+	// each finding say what slices it comes from.
+	Origins bool
+	Keep    bool
+	Jobs    int
+	Cache   string
+	Runner  *cut.Runner
+	Log     io.Writer
+	Verbose io.Writer
 }
 
 // Status is how one side's cut of a slice on an architecture ended.
@@ -57,6 +62,7 @@ type Side struct {
 	Ignored []string // the archives chisel skipped for want of credentials
 	Err     error
 	entries []listing.Entry
+	origins map[string][]string // path -> the slices it comes from, with Options.Origins
 }
 
 // Outcome is what a slice's two cuts on an architecture add up to.
@@ -93,6 +99,10 @@ type Finding struct {
 	Change Change
 	// Base and Head are the two sides of a changed entry.
 	Base, Head listing.Entry
+	// BaseFrom and HeadFrom are the slices the entry comes from on each
+	// side it is on, as chisel's manifest says, with Options.Origins. A
+	// directory made only to hold others comes from none.
+	BaseFrom, HeadFrom []string
 }
 
 // Cut is one slice on one architecture.
@@ -155,6 +165,9 @@ type run struct {
 	mu     sync.Mutex
 	// per side and architecture, the versions each deb was fetched in
 	debs [2][]map[string]map[string]bool
+	// noManifest is chisel's refusal to write a manifest, which stops a
+	// run with Options.Origins.
+	noManifest error
 }
 
 // Run cuts what plan says is to be cut and compares the two sides. A cut
@@ -180,6 +193,25 @@ func Run(ctx context.Context, opts Options, plan *changes.Result, archiveDiffers
 		}
 	}
 
+	if opts.Origins {
+		for side, dir := range [2]string{opts.Base, opts.Head} {
+			done := map[string]bool{}
+			for _, s := range r.slices {
+				if (side == base && !s.CutBase()) || (side == head && !s.CutHead()) {
+					continue
+				}
+				pkg, _ := s.On(side == base)
+				if done[pkg] {
+					continue
+				}
+				done[pkg] = true
+				if err := changes.AddManifest(dir, pkg); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
 	p, err := pool.New(ctx, pool.Options{Jobs: opts.Jobs, Cache: opts.Cache, Runner: opts.Runner, Keep: opts.Keep,
 		Name: "diff", Temp: "chisel-diff-*", Log: opts.Log, Verbose: opts.Verbose})
 	if err != nil {
@@ -191,8 +223,14 @@ func Run(ctx context.Context, opts Options, plan *changes.Result, archiveDiffers
 	if err := p.Pass(r.groups(0, 1), r.done); err != nil {
 		return nil, err
 	}
+	if r.noManifest != nil {
+		return nil, r.noManifest
+	}
 	if err := p.Pass(r.groups(1, len(opts.Arches)), r.done); err != nil {
 		return nil, err
+	}
+	if r.noManifest != nil {
+		return nil, r.noManifest
 	}
 	if err := r.prune(p); err != nil {
 		return nil, err
@@ -257,7 +295,7 @@ func (r *run) unit(u unit) pool.Unit {
 	if s.HeadName != "" {
 		name += "~" + strconv.Itoa(u.si)
 	}
-	return pool.Unit{
+	pu := pool.Unit{
 		Release: release,
 		Arch:    arch,
 		Slice:   id,
@@ -265,7 +303,18 @@ func (r *run) unit(u unit) pool.Unit {
 		Dir:     filepath.Join(sideNames[u.side], pkg, arch, name),
 		Tag:     u,
 	}
+	if r.opts.Origins {
+		pu.With = []string{pkg + "_" + changes.ManifestSlice}
+	}
+	return pu
 }
+
+// The manifest the slice changes.AddManifest adds has chisel write.
+var manifestFile = changes.ManifestDir + "/manifest.wall"
+
+// What chisel says when it cannot write a manifest at all: for a package
+// whose archive gives no sha256 digest, say.
+var invalidManifest = regexp.MustCompile(`(?m)^error: internal error: invalid manifest: .*$`)
 
 // done takes one finished cut: its rootfs is listed while it exists. It
 // stops the unit's group when the package itself is not there.
@@ -280,7 +329,15 @@ func (r *run) done(c pool.Cut) bool {
 			s = Side{Status: Failed, Err: err}
 			break
 		}
-		s = Side{Status: WasCut, Entries: len(entries), Version: c.Result.Version, Ignored: c.Result.Skipped, entries: entries}
+		var origins map[string][]string
+		if r.opts.Origins {
+			if origins, err = listing.Origins(filepath.Join(c.Root, manifestFile)); err != nil {
+				s = Side{Status: Failed, Err: err}
+				break
+			}
+			entries = listing.Without(entries, manifestFile, origins)
+		}
+		s = Side{Status: WasCut, Entries: len(entries), Version: c.Result.Version, Ignored: c.Result.Skipped, entries: entries, origins: origins}
 	case errors.As(c.Err, &ce) && (errors.Is(c.Err, cut.ErrNotAvailable) || errors.Is(c.Err, cut.ErrEssentialNotAvailable)):
 		s = Side{Status: NotAvailable, Missing: ce.Package, Ignored: ce.Skipped}
 	default:
@@ -288,6 +345,11 @@ func (r *run) done(c pool.Cut) bool {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if errors.As(c.Err, &ce) && r.noManifest == nil {
+		if m := invalidManifest.FindString(ce.Output); m != "" {
+			r.noManifest = fmt.Errorf("chisel cannot write the manifest the slices each entry comes from are read from, for the %s on %s: %s", sideNames[u.side], r.opts.Arches[u.ai], strings.TrimPrefix(m, "error: "))
+		}
+	}
 	if c.Err == nil {
 		seen := r.debs[u.side][u.ai]
 		for _, d := range c.Result.Debs {
@@ -367,7 +429,13 @@ func (r *run) settle(s *Slice, c *Cut) {
 		}
 		c.Outcome = Listed
 		for _, e := range only.entries {
-			c.Findings = append(c.Findings, Finding{Path: e.Path, Dir: e.Kind == listing.Dir, Change: change})
+			f := Finding{Path: e.Path, Dir: e.Kind == listing.Dir, Change: change}
+			if change == Lost {
+				f.BaseFrom = only.origins[e.Path]
+			} else {
+				f.HeadFrom = only.origins[e.Path]
+			}
+			c.Findings = append(c.Findings, f)
 		}
 	case gone(&c.Base) && gone(&c.Head):
 		c.Outcome = Unavailable
@@ -377,7 +445,7 @@ func (r *run) settle(s *Slice, c *Cut) {
 		c.Outcome = HeadNotAvailable
 	default:
 		c.Outcome = Compared
-		c.Findings = compare(c.Base.entries, c.Head.entries)
+		c.Findings = compare(c.Base, c.Head)
 	}
 	if c.Base.Status == WasCut {
 		for _, path := range c.Base.Pruned {
@@ -389,7 +457,8 @@ func (r *run) settle(s *Slice, c *Cut) {
 // compare matches the entries of two rootfs trees by path. An entry at the
 // base only is lost, one at the head only gained, one on both sides that is
 // described differently changed.
-func compare(baseEntries, headEntries []listing.Entry) []Finding {
+func compare(bs, hs Side) []Finding {
+	baseEntries, headEntries := bs.entries, hs.entries
 	at := func(entries []listing.Entry) map[string]listing.Entry {
 		m := make(map[string]listing.Entry, len(entries))
 		for _, e := range entries {
@@ -401,16 +470,17 @@ func compare(baseEntries, headEntries []listing.Entry) []Finding {
 	var out []Finding
 	for _, e := range baseEntries {
 		if _, ok := h[e.Path]; !ok {
-			out = append(out, Finding{Path: e.Path, Dir: e.Kind == listing.Dir, Change: Lost})
+			out = append(out, Finding{Path: e.Path, Dir: e.Kind == listing.Dir, Change: Lost, BaseFrom: bs.origins[e.Path]})
 		}
 	}
 	for _, e := range headEntries {
 		was, ok := b[e.Path]
 		switch {
 		case !ok:
-			out = append(out, Finding{Path: e.Path, Dir: e.Kind == listing.Dir, Change: Gained})
+			out = append(out, Finding{Path: e.Path, Dir: e.Kind == listing.Dir, Change: Gained, HeadFrom: hs.origins[e.Path]})
 		case was.String() != e.String():
-			out = append(out, Finding{Path: e.Path, Dir: was.Kind == listing.Dir, Change: Changed, Base: was, Head: e})
+			out = append(out, Finding{Path: e.Path, Dir: was.Kind == listing.Dir, Change: Changed, Base: was, Head: e,
+				BaseFrom: bs.origins[e.Path], HeadFrom: hs.origins[e.Path]})
 		}
 	}
 	return out

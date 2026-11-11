@@ -55,7 +55,7 @@ func TestRenderText(t *testing.T) {
 		),
 	}}
 	var out bytes.Buffer
-	renderText(&out, res, true, false, style{})
+	renderText(&out, res, true, false, "", style{})
 	assert.Equal(t, out.String(), `bash_bins 5.2-1 [amd64, arm64]
 -/etc/bash/rc
 -/usr/lib/<arch>-linux-<gnu>/b.so
@@ -81,12 +81,12 @@ ruby_libs [s390x]: error
 	renderText(&out, &diff.Result{Slices: []diff.Slice{
 		sl("pro", "one", changes.Changed, diff.Cut{Arch: "amd64", Outcome: diff.Unavailable, Base: pro, Head: pro}),
 		sl("pro", "two", changes.Changed, diff.Cut{Arch: "amd64", Outcome: diff.Unavailable, Base: skipped, Head: skipped}),
-	}}, true, false, style{})
+	}}, true, false, "", style{})
 	assert.Equal(t, out.String(), "pro [amd64]: not available (skipped archives: esm-apps)\n")
 
 	// Ungrouped: a block per architecture with its real paths.
 	out.Reset()
-	renderText(&out, &diff.Result{Slices: res.Slices[:1]}, false, false, style{})
+	renderText(&out, &diff.Result{Slices: res.Slices[:1]}, false, false, "", style{})
 	assert.Equal(t, out.String(), `bash_bins 5.2-1 [amd64]
 -/etc/bash/rc
 -/usr/lib/x86_64-linux-gnu/b.so
@@ -131,7 +131,7 @@ func TestRenderChanged(t *testing.T) {
 			changed("/usr/bin/md5sum", false, file(0755), link("../lib/aarch64-linux-gnu/md5sum"))),
 	)}}
 	var out bytes.Buffer
-	renderText(&out, res, true, false, style{})
+	renderText(&out, res, true, false, "", style{})
 	// A symlink target that names the architecture folds like a path.
 	assert.Equal(t, out.String(), `coreutils_bins 9.4 [amd64, arm64]
 -/usr/bin/basename
@@ -148,7 +148,7 @@ func TestRenderChanged(t *testing.T) {
 		compared("amd64", "1", changed("/a-foo", false, file(0644), file(0755)), changed("/a", false, file(0644), file(0755)),
 			changed("/l", false, link("/usr/lib/x86_64-linux-gnu/x"), link("b -> symlink to c"))),
 		compared("arm64", "1", changed("/l", false, link("/usr/lib/aarch64-linux-gnu/x -> symlink to b"), link("c"))),
-	)}}, true, false, style{})
+	)}}, true, false, "", style{})
 	assert.Equal(t, out.String(), `x_bins 1 [amd64]
 ~/a: file 0644 -> file 0755
 ~/a-foo: file 0644 -> file 0755
@@ -163,11 +163,11 @@ x_bins 1 [arm64]
 	renderText(&out, &diff.Result{Slices: []diff.Slice{sl("apparmor", "profiles", changes.Changed, diff.Cut{
 		Arch: "amd64", Outcome: diff.HeadNotAvailable, Findings: []diff.Finding{{Path: "/etc/apparmor.d/busybox", Change: diff.NoContent}},
 		Base: diff.Side{Status: diff.WasCut, Version: "4.0", Pruned: []string{"/etc/apparmor.d/busybox"}}, Head: diff.Side{Status: diff.NotAvailable, Missing: "apparmor"},
-	})}}, true, false, style{})
+	})}}, true, false, "", style{})
 	assert.Equal(t, out.String(), "apparmor_profiles 4.0 [amd64]\n!/etc/apparmor.d/busybox: no content\napparmor_profiles [amd64]: head not available\n")
 
 	out.Reset()
-	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, res.Slices[:1], true))
+	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, res.Slices[:1], true, false))
 	assert.ContainsString(t, out.String(), `{"path":"/usr/bin/su","change":"changed","arches":["amd64","arm64"],"base":{"kind":"file","mode":"4755"},"head":{"kind":"file","mode":"0755"}}`)
 	assert.ContainsString(t, out.String(), `{"path":"/var/run/","change":"changed","arches":["amd64","arm64"],"base":{"kind":"dir"},"head":{"kind":"symlink","target":"/run"}}`)
 }
@@ -176,7 +176,7 @@ func TestRenderColoured(t *testing.T) {
 	res := &diff.Result{Slices: []diff.Slice{sl("bash", "bins", changes.Changed,
 		compared("amd64", "5.2", lost("/a"), gained("/b"), diff.Finding{Path: "/c", Change: diff.NoContent}))}}
 	var out bytes.Buffer
-	renderText(&out, res, true, false, colours)
+	renderText(&out, res, true, false, "", colours)
 	assert.Equal(t, out.String(), "\x1b[1;34mbash_bins\x1b[0m 5.2 [amd64]\n\x1b[31m-/a\x1b[0m\n\x1b[32m+/b\x1b[0m\n\x1b[33m!/c: no content\x1b[0m\n")
 	assert.Equal(t, summary(res, style{}), "1/1 slice differs, 1 path gained(+), 1 path lost(-), 0 changed(~), 1 no content(!)")
 	// Not a terminal: no colour.
@@ -199,7 +199,7 @@ func TestRenderJSON(t *testing.T) {
 		sl("s", "bins", changes.Same, compared("amd64", "1.0")),
 	}
 	var out bytes.Buffer
-	assert.NoError(t, renderJSON(&out, run, plan, slices, true))
+	assert.NoError(t, renderJSON(&out, run, plan, slices, true, false))
 	assert.Equal(t, out.String(), `{"run":{"chisel":"v1.2.0","release":".","chisel-yaml-differs":false,"revisions":"main","merge-base":false,`+
 		`"base":{"kind":"rev","ref":"main","tip":"main","rev":"main"},"head":{"kind":"worktree","ref":null,"tip":null,"rev":null}},`+
 		`"packages":[{"name":"bash","file":"modified","slices":[{"name":"bins","state":"changed","forced":false,"cuts":[`+
@@ -220,7 +220,7 @@ func TestRenderPair(t *testing.T) {
 	other := sl("old", "awt", changes.Changed, compared("amd64", "1"))
 	other.HeadPackage, other.HeadName = "jdk", "awt-core"
 	var out bytes.Buffer
-	renderText(&out, &diff.Result{Slices: []diff.Slice{s, other}}, true, false, style{})
+	renderText(&out, &diff.Result{Slices: []diff.Slice{s, other}}, true, false, "", style{})
 	assert.Equal(t, out.String(), "jdk_awt:awt-core 17.0 [amd64]\n-/b\n+/c\n")
 
 	// Not available on both sides: told under the pair's name, not as its
@@ -229,11 +229,11 @@ func TestRenderPair(t *testing.T) {
 		Base: diff.Side{Status: diff.NotAvailable, Missing: "old"}, Head: diff.Side{Status: diff.NotAvailable, Missing: "old"}})
 	gone.HeadPackage, gone.HeadName = "new", "b"
 	out.Reset()
-	renderText(&out, &diff.Result{Slices: []diff.Slice{gone}}, true, false, style{})
+	renderText(&out, &diff.Result{Slices: []diff.Slice{gone}}, true, false, "", style{})
 	assert.Equal(t, out.String(), "old_a:new_b [amd64]: not available\n")
 
 	out.Reset()
-	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, []diff.Slice{s}, true))
+	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, []diff.Slice{s}, true, false))
 	assert.ContainsString(t, out.String(), `"name":"awt","state":"changed","forced":true,"head-package":"jdk","head-slice":"awt-core"`)
 }
 
@@ -261,7 +261,7 @@ func TestRenderTree(t *testing.T) {
 		lost("/var/run/x"),
 	))}}
 	var out bytes.Buffer
-	renderText(&out, res, true, true, style{})
+	renderText(&out, res, true, true, "", style{})
 	assert.Equal(t, out.String(), boxes(`x_s 1 [amd64]
 !/etc/x: no content
 /usr/
@@ -280,7 +280,7 @@ L- -x
 
 	// The tree holds the flat report's entries, one line each.
 	var flat bytes.Buffer
-	renderText(&flat, res, true, false, style{})
+	renderText(&flat, res, true, false, "", style{})
 	signed := func(s string) int {
 		n := 0
 		for _, l := range strings.Split(s, "\n") {
@@ -299,22 +299,77 @@ L- -x
 	two := map[string]diff.Finding{"amd64": lost("/usr/lib/x86_64-linux-gnu/a"), "arm64": lost("/usr/lib/aarch64-linux-gnu/a")}
 	res = &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed, compared("amd64", "1", two["amd64"]), compared("arm64", "1", two["arm64"]))}}
 	out.Reset()
-	renderText(&out, res, true, true, style{})
+	renderText(&out, res, true, true, "", style{})
 	assert.Equal(t, out.String(), "x_s 1 [amd64, arm64]\n-/usr/lib/<arch>-linux-<gnu>/a\n")
 	out.Reset()
-	renderText(&out, res, false, true, style{})
+	renderText(&out, res, false, true, "", style{})
 	assert.Equal(t, out.String(), "x_s 1 [amd64]\n-/usr/lib/x86_64-linux-gnu/a\nx_s 1 [arm64]\n-/usr/lib/aarch64-linux-gnu/a\n")
 
 	// Sorted by the name drawn: /a/z folded is after /a-b.
 	res = &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed, compared("amd64", "1", lost("/a/z"), lost("/a-b")))}}
 	out.Reset()
-	renderText(&out, res, true, true, style{})
+	renderText(&out, res, true, true, "", style{})
 	assert.Equal(t, out.String(), "x_s 1 [amd64]\n-/a-b\n-/a/z\n")
 
 	// Colour: the entry and its sign take the sign's, the glyphs are dim, a
 	// directory drawn only to hold others is plain.
 	res = &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed, compared("amd64", "1", lost("/a/b"), lost("/a/c")))}}
 	out.Reset()
-	renderText(&out, res, true, true, colours)
+	renderText(&out, res, true, true, "", colours)
 	assert.Equal(t, out.String(), boxes("\x1b[1;34mx_s\x1b[0m 1 [amd64]\n/a/\n\x1b[2mT- \x1b[0m\x1b[31m-b\x1b[0m\n\x1b[2mL- \x1b[0m\x1b[31m-c\x1b[0m\n"))
+}
+
+func TestRenderOrigins(t *testing.T) {
+	from := func(f diff.Finding, b, h string) diff.Finding {
+		if b != "" {
+			f.BaseFrom = strings.Split(b, ",")
+		}
+		if h != "" {
+			f.HeadFrom = strings.Split(h, ",")
+		}
+		return f
+	}
+	file := func(mode fs.FileMode) listing.Entry { return listing.Entry{Kind: listing.File, Mode: mode} }
+	res := &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed, compared("amd64", "1",
+		from(lost("/usr/lib/libz.so.1"), "zlib1g_libs", ""),
+		from(lost("/etc/shared"), "b_conf,a_conf,a_more", ""),
+		// A directory made only to hold others comes from none.
+		dir(lost("/var/cache")),
+		from(gained("/usr/bin/new"), "", "x_s"),
+		from(diff.Finding{Path: "/usr/bin/su", Change: diff.Changed, Base: file(0755), Head: file(0700)}, "x_s", "x_s"),
+		from(diff.Finding{Path: "/usr/bin/sh", Change: diff.Changed, Base: file(0755), Head: file(0700)}, "x_s", "dash_bins"),
+	))}}
+	var out bytes.Buffer
+	renderText(&out, res, true, false, "packages", style{})
+	assert.Equal(t, out.String(), `x_s 1 [amd64]
+-/etc/shared <- a, b
+-/usr/lib/libz.so.1 <- zlib1g
+-/var/cache/
++/usr/bin/new <- x
+~/usr/bin/sh: file 0755 -> file 0700 <- x -> dash
+~/usr/bin/su: file 0755 -> file 0700 <- x
+`)
+	out.Reset()
+	renderText(&out, res, true, false, "slices", style{})
+	assert.ContainsString(t, out.String(), "-/etc/shared <- b_conf, a_conf, a_more\n")
+	out.Reset()
+	renderText(&out, res, true, true, "packages", style{})
+	assert.ContainsString(t, out.String(), boxes("|  T- ~sh: file 0755 -> file 0700 <- x -> dash\n"))
+
+	// Arches that came by a path from different packages do not fold.
+	res = &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed,
+		compared("amd64", "1", from(lost("/usr/lib/x86_64-linux-gnu/a"), "p_libs", "")),
+		compared("arm64", "1", from(lost("/usr/lib/aarch64-linux-gnu/a"), "q_libs", "")),
+		compared("s390x", "1", from(lost("/usr/lib/s390x-linux-gnu/a"), "p_libs", "")))}}
+	out.Reset()
+	renderText(&out, res, true, false, "packages", style{})
+	assert.Equal(t, out.String(), "x_s 1 [amd64, s390x]\n-/usr/lib/<arch>-linux-<gnu>/a <- p\nx_s 1 [arm64]\n-/usr/lib/aarch64-linux-gnu/a <- q\n")
+	// Without, they do.
+	out.Reset()
+	renderText(&out, res, true, false, "", style{})
+	assert.Equal(t, out.String(), "x_s 1 [amd64, arm64, s390x]\n-/usr/lib/<arch>-linux-<gnu>/a\n")
+
+	out.Reset()
+	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, res.Slices, true, true))
+	assert.ContainsString(t, out.String(), `"arches":["amd64","s390x"],"raw":{"amd64":"/usr/lib/x86_64-linux-gnu/a","s390x":"/usr/lib/s390x-linux-gnu/a"},"from":{"base":["p_libs"]}`)
 }

@@ -87,6 +87,15 @@ type jsonFinding struct {
 	// the arches has them.
 	Base *jsonEntry `json:"base,omitempty"`
 	Head *jsonEntry `json:"head,omitempty"`
+	// From is the slices the entry comes from on each side it is on, as
+	// the first of the arches has it, with --packages; none for a
+	// directory made only to hold others.
+	From *jsonFrom `json:"from,omitempty"`
+}
+
+type jsonFrom struct {
+	Base []string `json:"base,omitempty"`
+	Head []string `json:"head,omitempty"`
 }
 
 type jsonEntry struct {
@@ -112,8 +121,13 @@ func ptr(s string) *string {
 
 // renderJSON writes the report as one json document, folded as the text is
 // unless group is unset. Every entry is in it, directories too. slices are
-// the ones to report, with their cuts when any were made.
-func renderJSON(w io.Writer, run jsonRun, plan *changes.Result, slices []diff.Slice, group bool) error {
+// the ones to report, with their cuts when any were made. With origins
+// every finding says what slices it comes from.
+func renderJSON(w io.Writer, run jsonRun, plan *changes.Result, slices []diff.Slice, group, origins bool) error {
+	from := ""
+	if origins {
+		from = "slices"
+	}
 	report := jsonReport{Run: run, Packages: []jsonPackage{}}
 	index := map[string]int{}
 	files := map[string]string{}
@@ -143,7 +157,7 @@ func renderJSON(w io.Writer, run jsonRun, plan *changes.Result, slices []diff.Sl
 			arches = append(arches, c.Arch)
 			var its []fold.Item
 			for _, f := range c.Findings {
-				it := item(f, c.Arch)
+				it := item(f, c.Arch, from)
 				its = append(its, it)
 				byRaw[c.Arch+"\x00"+it.Raw] = f
 			}
@@ -151,11 +165,14 @@ func renderJSON(w io.Writer, run jsonRun, plan *changes.Result, slices []diff.Sl
 		}
 		for _, g := range groups(arches, items, group) {
 			for _, e := range g.Entries {
-				change, _, _ := splitTag(e.Tag)
+				change, _, _, _ := splitTag(e.Tag)
 				f := jsonFinding{Path: e.Shown(), Change: change, Arches: g.Arches}
+				first := byRaw[g.Arches[0]+"\x00"+e.Raw[0]]
 				if f.Change == diff.Changed {
-					first := byRaw[g.Arches[0]+"\x00"+e.Raw[0]]
 					f.Base, f.Head = entry(first.Base), entry(first.Head)
+				}
+				if origins && (len(first.BaseFrom) > 0 || len(first.HeadFrom) > 0) {
+					f.From = &jsonFrom{Base: first.BaseFrom, Head: first.HeadFrom}
 				}
 				if f.Path != e.Raw[0] {
 					f.Raw = map[string]string{}

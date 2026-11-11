@@ -184,6 +184,35 @@ func TestRealChisel(t *testing.T) {
 		assert.Equal(t, got, "")
 	})
 
+	t.Run("origins: each finding names the slices chisel says it came from", func(t *testing.T) {
+		f.reset()
+		f.sides("libdemo", libs, libs)
+		f.sides("demo",
+			"slices:\n\tbins:\n\t\tessential:\n\t\t\tlibdemo_libs:\n\t\tcontents:\n\t\t\t/usr/bin/demo:\n\t\t\t/usr/bin/sh: {symlink: demo}\n\t\t\t/var/lib/demo/: {make: true}\n",
+			"slices:\n\tbins:\n\t\tcontents:\n\t\t\t/usr/bin/demo:\n\t\t\t/usr/bin/sh: {symlink: tool}\n\t\t\t/usr/bin/tool:\n")
+		res := f.run([]string{arch}, nil, nil, Options{OneArchive: true, Origins: true})
+		clean(res)
+		var c Cut
+		for _, s := range res.Slices {
+			if s.ID() == "demo_bins" {
+				c = s.Cuts[0]
+			}
+		}
+		// What the manifest's own slice adds is not seen: /var and /var/lib
+		// are lost for /var/lib/demo alone, as without origins.
+		assert.Equal(t, findings(c), "-/usr/lib/ -/usr/lib/libdemo.so.1 -/var/ -/var/lib/ -/var/lib/demo/ ~/usr/bin/sh +/usr/bin/tool")
+		from := map[string]string{}
+		for _, fd := range c.Findings {
+			from[fd.Path] = strings.Join(fd.BaseFrom, ",") + "|" + strings.Join(fd.HeadFrom, ",")
+		}
+		assert.Equal(t, from["/usr/lib/libdemo.so.1"], "libdemo_libs|")
+		// A directory made only to hold others comes from no slice.
+		assert.Equal(t, from["/usr/lib"], "|")
+		assert.Equal(t, from["/var/lib/demo"], "demo_bins|")
+		assert.Equal(t, from["/usr/bin/tool"], "|demo_bins")
+		assert.Equal(t, from["/usr/bin/sh"], "demo_bins|demo_bins")
+	})
+
 	t.Run("a directory the slice made is an entry", func(t *testing.T) {
 		f.reset()
 		f.sides("demo", "slices:\n\tbins:\n\t\tcontents:\n\t\t\t/usr/bin/demo:\n\t\t\t/var/lib/demo/: {make: true}\n", "slices:\n\tbins:\n\t\tcontents:\n\t\t\t/usr/bin/demo:\n")

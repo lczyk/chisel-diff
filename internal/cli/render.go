@@ -23,8 +23,10 @@ import (
 // line, with what is to be said of it after a colon. "~<path>: <base> ->
 // <head>" is an entry on both sides that changed, "!<path>: no content"
 // is an entry deleted from the base because the archive no longer has it. With group unset every
-// architecture is a block of its own with its real paths.
-func renderText(w io.Writer, res *diff.Result, group, tree bool, st style) {
+// architecture is a block of its own with its real paths. With from set,
+// "packages" or "slices", every entry ends in " <- " and what it comes from,
+// as origin says.
+func renderText(w io.Writer, res *diff.Result, group, tree bool, from string, st style) {
 	absent := map[string]bool{} // packages whose own absence was told
 	for _, s := range res.Slices {
 		if len(s.Cuts) == 0 {
@@ -42,7 +44,7 @@ func renderText(w io.Writer, res *diff.Result, group, tree bool, st style) {
 			switch c.Outcome {
 			case diff.Compared, diff.Listed:
 				arches = append(arches, c.Arch)
-				items = append(items, cutItems(c))
+				items = append(items, cutItems(c, from))
 				for _, it := range items[len(items)-1] {
 					rawTags[c.Arch+"\x00"+it.Raw] = it.RawTag
 				}
@@ -52,7 +54,7 @@ func renderText(w io.Writer, res *diff.Result, group, tree bool, st style) {
 			// was deleted from it is still told.
 			if len(c.Findings) > 0 {
 				arches = append(arches, c.Arch)
-				items = append(items, cutItems(c))
+				items = append(items, cutItems(c, from))
 			}
 			note := note(s, c)
 			if _, ok := notes[note]; !ok {
@@ -181,13 +183,13 @@ func version(c diff.Cut) string {
 // cutItems are the findings of one cut as fold takes them. A directory is
 // left out when something under it is reported in the same state, so losing
 // a file and with it the now empty directory around it is one line.
-func cutItems(c diff.Cut) []fold.Item {
+func cutItems(c diff.Cut, from string) []fold.Item {
 	var out []fold.Item
 	for _, f := range c.Findings {
 		if f.Dir && under(c.Findings, f) {
 			continue
 		}
-		out = append(out, item(f, c.Arch))
+		out = append(out, item(f, c.Arch, from))
 	}
 	return out
 }
@@ -215,20 +217,30 @@ func groups(arches []string, items [][]fold.Item, group bool) []fold.Group {
 }
 
 // rline is one line of a block: its sign, its path as shown (a directory
-// with a trailing slash), and what is said after it, "" for a lost or gained
-// entry.
+// with a trailing slash), what is said after it, "" for a lost or gained
+// entry, and what it comes from, "" when not asked or for nothing.
 type rline struct {
 	sign byte
 	path string
 	desc string
+	from string
 }
 
 // flat is the entry as the report prints it, a line of its own.
 func (e rline) flat() string {
-	if e.desc == "" {
-		return string(e.sign) + e.path
+	return string(e.sign) + e.path + e.tail()
+}
+
+// tail is what follows an entry's path, in the flat report and the tree.
+func (e rline) tail() string {
+	s := ""
+	if e.desc != "" {
+		s += ": " + e.desc
 	}
-	return string(e.sign) + e.path + ": " + e.desc
+	if e.from != "" {
+		s += " <- " + e.from
+	}
+	return s
 }
 
 // entries are a group's entries as the report prints them: lost, gained,
@@ -240,12 +252,12 @@ func entries(g fold.Group, rawTags map[string]string) []rline {
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Shown() < sorted[j].Shown() })
 	var lost, gained, changed, pruned []rline
 	for _, e := range sorted {
-		change, b, h := splitTag(e.Tag)
+		change, b, h, from := splitTag(e.Tag)
 		switch change {
 		case diff.Lost:
-			lost = append(lost, rline{'-', e.Shown(), ""})
+			lost = append(lost, rline{'-', e.Shown(), "", from})
 		case diff.Gained:
-			gained = append(gained, rline{'+', e.Shown(), ""})
+			gained = append(gained, rline{'+', e.Shown(), "", from})
 		case diff.Changed:
 			if raw := rawTags[g.Arches[0]+"\x00"+e.Raw[0]]; raw != "" {
 				same := true
@@ -253,38 +265,82 @@ func entries(g fold.Group, rawTags map[string]string) []rline {
 					same = same && rawTags[arch+"\x00"+e.Raw[i]] == raw
 				}
 				if same {
-					_, b, h = splitTag(raw)
+					_, b, h, _ = splitTag(raw)
 				}
 			}
-			changed = append(changed, rline{'~', e.Shown(), b + " -> " + h})
+			changed = append(changed, rline{'~', e.Shown(), b + " -> " + h, from})
 		default:
-			pruned = append(pruned, rline{'!', e.Shown(), "no content"})
+			pruned = append(pruned, rline{'!', e.Shown(), "no content", ""})
 		}
 	}
 	return append(append(append(lost, gained...), changed...), pruned...)
 }
 
-// splitTag reads a finding's tag: the change and, for a changed entry, the
-// two descriptions. A NUL keeps them apart, since a symlink target may
-// itself hold " -> ".
-func splitTag(tag string) (diff.Change, string, string) {
-	parts := strings.SplitN(tag, "\x00", 3)
-	if len(parts) < 3 {
-		return diff.Change(parts[0]), "", ""
+// splitTag reads a finding's tag: the change, for a changed entry the two
+// descriptions, and what the entry comes from. A NUL keeps them apart, since
+// a symlink target may itself hold " -> " and no path holds a NUL.
+func splitTag(tag string) (change diff.Change, b, h, from string) {
+	parts := strings.SplitN(tag, "\x00", 4)
+	for len(parts) < 4 {
+		parts = append(parts, "")
 	}
-	return diff.Change(parts[0]), parts[1], parts[2]
+	return diff.Change(parts[0]), parts[1], parts[2], parts[3]
 }
 
-// item is a finding as fold takes it. The tag is the change, and for a
-// changed entry the two descriptions, so that only architectures where the
-// entry changed the same way fold; a symlink target is normalised like a
-// path.
-func item(f diff.Finding, arch string) fold.Item {
+// origin is what a finding comes from as the report names it, with from
+// "packages" or "slices": the side's slices or their packages, each once,
+// sorted, for a changed entry both sides' when they differ. "" when from is
+// "" or the entry is a directory made only to hold others.
+func origin(f diff.Finding, from string) string {
+	if from == "" {
+		return ""
+	}
+	name := func(ids []string) string {
+		if from == "slices" {
+			return strings.Join(ids, ", ")
+		}
+		var pkgs []string
+		for _, id := range ids {
+			pkg, _, _ := strings.Cut(id, "_")
+			if !slices.Contains(pkgs, pkg) {
+				pkgs = append(pkgs, pkg)
+			}
+		}
+		sort.Strings(pkgs)
+		return strings.Join(pkgs, ", ")
+	}
+	switch f.Change {
+	case diff.Lost:
+		return name(f.BaseFrom)
+	case diff.Gained:
+		return name(f.HeadFrom)
+	case diff.Changed:
+		b, h := name(f.BaseFrom), name(f.HeadFrom)
+		if b == h {
+			return b
+		}
+		if b == "" {
+			b = "none"
+		}
+		if h == "" {
+			h = "none"
+		}
+		return b + " -> " + h
+	}
+	return ""
+}
+
+// item is a finding as fold takes it. The tag is the change, for a changed
+// entry the two descriptions, so that only architectures where the entry
+// changed the same way fold, a symlink target normalised like a path, and
+// what the entry comes from, as origin names it with from.
+func item(f diff.Finding, arch, from string) fold.Item {
 	path := f.Path
 	if f.Dir {
 		path += "/"
 	}
 	it := fold.Item{Key: fold.Normalise(path, arch), Tag: string(f.Change), Raw: path}
+	o := origin(f, from)
 	if f.Change == diff.Changed {
 		describe := func(e listing.Entry, norm bool) string {
 			if norm && e.Kind == listing.Symlink {
@@ -294,6 +350,15 @@ func item(f diff.Finding, arch string) fold.Item {
 		}
 		it.Tag += "\x00" + describe(f.Base, true) + "\x00" + describe(f.Head, true)
 		it.RawTag = string(f.Change) + "\x00" + describe(f.Base, false) + "\x00" + describe(f.Head, false)
+		if o != "" {
+			it.RawTag += "\x00" + o
+		}
+	}
+	if o != "" {
+		if f.Change != diff.Changed {
+			it.Tag += "\x00\x00"
+		}
+		it.Tag += "\x00" + o
 	}
 	return it
 }

@@ -96,9 +96,7 @@ func drawNode(n *tnode, prefix string, last, top bool, st style, out *[]string) 
 		if strings.HasSuffix(e.path, "/") {
 			text += "/"
 		}
-		if e.desc != "" {
-			text += ": " + e.desc
-		}
+		text += e.tail()
 		*out = append(*out, lead+st.paint(e.sign, text))
 	}
 	drawKids(n, prefix+pad, false, st, out)
