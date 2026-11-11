@@ -288,6 +288,13 @@ slices:
 	assert.NoError(t, err)
 	assert.Equal(t, ids(res.Reported()), "cdx-s_bins")
 	assert.Equal(t, ids(res.Prefer), "cdx-s_policy")
+
+	// A pair cuts another slice at the head, so the base's slice is still
+	// cut for prefer against itself.
+	res, err = Compare(base, head, nil, []string{"cdx-s_bins:plain"})
+	assert.NoError(t, err)
+	assert.Equal(t, ids(res.Reported()), "cdx-s_bins")
+	assert.Equal(t, ids(res.Prefer), "cdx-s_bins cdx-s_policy")
 }
 
 func TestLoadErrors(t *testing.T) {
@@ -307,4 +314,72 @@ func TestLoadErrors(t *testing.T) {
 	assert.NoError(t, os.WriteFile(filepath.Join(dir, "slices", "a", "bash.yaml"), []byte(bash), 0644))
 	_, err = Load(dir)
 	assert.Error(t, err, "package bash has a second file")
+}
+
+func TestPairs(t *testing.T) {
+	jdk := func(pkg string, core bool) string {
+		s := "package: " + pkg + "\nslices:\n  awt:\n    contents:\n      /awt:\n"
+		if core {
+			s += "  awt-core:\n    contents:\n      /awt-core:\n"
+		}
+		return s
+	}
+	base := release(t, map[string]string{
+		"slices/jdk17.yaml": jdk("jdk17", false),
+		"slices/jdk21.yaml": jdk("jdk21", false),
+		"slices/other.yaml": jdk("other", false),
+	})
+	head := release(t, map[string]string{
+		"slices/jdk17.yaml": jdk("jdk17", true),
+		"slices/jdk21.yaml": jdk("jdk21", true),
+		"slices/other.yaml": jdk("other", false),
+	})
+
+	// Bare: every package considered that has both, and only the pairs are
+	// reported, cut on both sides under their own names.
+	res, err := Compare(base, head, nil, []string{"awt:awt-core"})
+	assert.NoError(t, err)
+	var shown []string
+	for _, s := range res.Reported() {
+		shown = append(shown, s.Shown())
+		assert.That(t, s.Picked && s.CutBase() && s.CutHead())
+		_, name := s.On(true)
+		assert.Equal(t, name, "awt")
+		_, name = s.On(false)
+		assert.Equal(t, name, "awt-core")
+	}
+	assert.EqualArrays(t, shown, []string{"jdk17_awt:awt-core", "jdk21_awt:awt-core"})
+
+	// Full: one package, and across packages.
+	res, err = Compare(base, head, nil, []string{"jdk17_awt:awt-core", "other_awt:jdk21_awt-core"})
+	assert.NoError(t, err)
+	shown = nil
+	for _, s := range res.Reported() {
+		shown = append(shown, s.Shown())
+	}
+	assert.EqualArrays(t, shown, []string{"jdk17_awt:awt-core", "other_awt:jdk21_awt-core"})
+	assert.Equal(t, res.Reported()[1].HeadID(), "jdk21_awt-core")
+
+	// Mixed with an ordinary pick.
+	res, err = Compare(base, head, []string{"jdk17"}, []string{"awt:awt-core", "awt"})
+	assert.NoError(t, err)
+	shown = nil
+	for _, s := range res.Reported() {
+		shown = append(shown, s.Shown())
+	}
+	assert.EqualArrays(t, shown, []string{"jdk17_awt", "jdk17_awt:awt-core"})
+
+	for pick, want := range map[string]string{
+		"awt:":                "a pair is <a>:<b>",
+		":awt":                "a pair is <a>:<b>",
+		"a:b:c":               "a pair is <a>:<b>",
+		"awt:jdk21_awt-core":  "a bare slice at the base pairs with a bare one at the head",
+		"jdk17_nope:awt-core": "jdk17_nope is not at the base",
+		"jdk17_awt:nope":      "jdk17_nope is not at the head",
+		"jdk17_awt-core:awt":  "jdk17_awt-core is not at the base",
+		"awt-core:awt":        "no package considered has awt-core at the base and awt at the head",
+	} {
+		_, err := Compare(base, head, nil, []string{pick})
+		assert.Error(t, err, want)
+	}
 }

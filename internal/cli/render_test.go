@@ -201,3 +201,26 @@ func TestRenderJSON(t *testing.T) {
 		`{"name":"scripts","state":"added","forced":false,"cuts":[],"findings":[]}]},`+
 		`{"name":"s","file":"same","slices":[{"name":"bins","state":"same","forced":true,"cuts":[{"arch":"amd64","outcome":"compared","base":{"status":"cut","entries":0,"version":"1.0","missing":null,"pruned":[],"skipped-archives":[],"error":null},"head":{"status":"cut","entries":0,"version":"1.0","missing":null,"pruned":[],"skipped-archives":[],"error":null}}],"findings":[]}]}]}`+"\n")
 }
+
+func TestRenderPair(t *testing.T) {
+	s := sl("jdk", "awt", changes.Changed, compared("amd64", "17.0", lost("/b"), gained("/c")))
+	s.HeadName = "awt-core"
+	other := sl("old", "awt", changes.Changed, compared("amd64", "1"))
+	other.HeadPackage, other.HeadName = "jdk", "awt-core"
+	var out bytes.Buffer
+	renderText(&out, &diff.Result{Slices: []diff.Slice{s, other}}, true, style{})
+	assert.Equal(t, out.String(), "jdk_awt:awt-core 17.0 [amd64]\n-/b\n+/c\n")
+
+	// Not available on both sides: told under the pair's name, not as its
+	// package's absence.
+	gone := sl("old", "a", changes.Changed, diff.Cut{Arch: "amd64", Outcome: diff.Unavailable,
+		Base: diff.Side{Status: diff.NotAvailable, Missing: "old"}, Head: diff.Side{Status: diff.NotAvailable, Missing: "old"}})
+	gone.HeadPackage, gone.HeadName = "new", "b"
+	out.Reset()
+	renderText(&out, &diff.Result{Slices: []diff.Slice{gone}}, true, style{})
+	assert.Equal(t, out.String(), "old_a:new_b [amd64]: not available\n")
+
+	out.Reset()
+	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, []diff.Slice{s}, true))
+	assert.ContainsString(t, out.String(), `"name":"awt","state":"changed","forced":true,"head-package":"jdk","head-slice":"awt-core"`)
+}

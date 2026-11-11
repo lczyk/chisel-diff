@@ -49,9 +49,13 @@ type jsonSlice struct {
 	State changes.State `json:"state"`
 	// Forced is set for a slice that was cut without being changed: picked
 	// by --slice, or for a path its package gives away with prefer.
-	Forced   bool          `json:"forced"`
-	Cuts     []jsonCut     `json:"cuts"`
-	Findings []jsonFinding `json:"findings"`
+	Forced bool `json:"forced"`
+	// HeadPackage and HeadSlice are set for a pair, --slice <a>:<b>: the
+	// slice cut at the head in place of this one.
+	HeadPackage string        `json:"head-package,omitempty"`
+	HeadSlice   string        `json:"head-slice,omitempty"`
+	Cuts        []jsonCut     `json:"cuts"`
+	Findings    []jsonFinding `json:"findings"`
 }
 
 type jsonCut struct {
@@ -127,7 +131,10 @@ func renderJSON(w io.Writer, run jsonRun, plan *changes.Result, slices []diff.Sl
 			}
 			report.Packages = append(report.Packages, jsonPackage{Name: s.Package, File: file})
 		}
-		js := jsonSlice{Name: s.Name, State: s.State, Forced: s.State != changes.Changed && len(s.Cuts) > 0, Cuts: []jsonCut{}, Findings: []jsonFinding{}}
+		js := jsonSlice{Name: s.Name, State: s.State, Forced: (s.State != changes.Changed || s.HeadName != "") && len(s.Cuts) > 0, Cuts: []jsonCut{}, Findings: []jsonFinding{}}
+		if s.HeadName != "" {
+			js.HeadPackage, js.HeadSlice = s.On(false)
+		}
 		var arches []string
 		var items [][]fold.Item
 		byRaw := map[string]diff.Finding{} // arch and raw path -> the finding

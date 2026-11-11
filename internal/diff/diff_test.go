@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -445,4 +446,33 @@ func TestArchiveThatMoved(t *testing.T) {
 	f.write(f.head, "slices/bash.yaml", "package: bash\narchive: fips\nslices:\n  bins:\n    contents:\n      /head:\n")
 	res = f.run([]string{"amd64"}, nil, nil, Options{OneArchive: true})
 	assert.Len(t, res.Errors, 0)
+}
+
+func TestPairs(t *testing.T) {
+	f := setup(t)
+	f.pkg(f.base, "jdk", "awt")
+	f.pkg(f.head, "jdk", "awt", "awt-core")
+	f.write(f.base, "fake/tree/jdk_awt/all/usr/a", "x")
+	f.write(f.base, "fake/tree/jdk_awt/all/usr/b", "x")
+	f.write(f.head, "fake/tree/jdk_awt/all/usr/a", "x")
+	f.write(f.head, "fake/tree/jdk_awt/all/usr/b", "x")
+	f.write(f.head, "fake/tree/jdk_awt-core/all/usr/a", "x")
+	f.write(f.head, "fake/tree/jdk_awt-core/all/usr/c", "x")
+
+	// awt at the base against awt-core at the head, and awt against itself
+	// beside it: the base's awt is cut twice, into dirs of their own.
+	res := f.run([]string{"amd64"}, nil, []string{"awt:awt-core", "awt"}, Options{OneArchive: true})
+	assert.Len(t, res.Slices, 2)
+	byShown := map[string]Cut{}
+	for _, s := range res.Slices {
+		byShown[s.Shown()] = s.Cuts[0]
+	}
+	pair := byShown["jdk_awt:awt-core"]
+	assert.Equal(t, pair.Outcome, Compared)
+	assert.Equal(t, findings(pair), "-/usr/b +/usr/c")
+	assert.Equal(t, findings(byShown["jdk_awt"]), "")
+	cuts := f.cuts()
+	sort.Strings(cuts)
+	assert.EqualArrays(t, cuts, []string{"amd64 jdk_awt base", "amd64 jdk_awt base", "amd64 jdk_awt head", "amd64 jdk_awt-core head"})
+	assert.That(t, res.Missing(), "awt-core lacks /usr/b")
 }

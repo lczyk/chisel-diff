@@ -34,7 +34,7 @@ type flags struct {
 	NoIndex     bool     `long:"no-index" description:"compare two release dirs, without git"`
 	XRelease    bool     `short:"x" long:"x-release" description:"allow a comparison across ubuntu releases, which cuts only the packages or --slice named"`
 	Arches      []string `long:"arch" value-name:"<a>[,<a>...]" description:"architectures to compare; \"all\" for every one (default: host)"`
-	Slices      []string `long:"slice" value-name:"<s>[,<s>...]" description:"these slices, bare or <package>_<slice>, changed or not; \"all\" for every slice (default: removed, added and changed)"`
+	Slices      []string `long:"slice" value-name:"<s>[,<s>...]" description:"these slices, bare or <package>_<slice>, changed or not; \"all\" for every slice; <a>:<b> slice a at the base against slice b at the head (default: removed, added and changed)"`
 	FailMissing bool     `long:"fail-missing" description:"exit 1 when a slice lost an entry or went away"`
 	NameStatus  bool     `long:"name-status" description:"name the slices and their states, cut nothing"`
 	NoGroup     bool     `long:"no-group" description:"one block per architecture with its real paths"`
@@ -192,7 +192,7 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 			return 0, renderJSON(out, runInfo(runner.Bin, spec.Release, spec, s, res), res, named, !f.NoGroup)
 		}
 		for _, sl := range res.Reported() {
-			fmt.Fprintf(out, "%s: %s\n", sl.ID(), sl.State)
+			fmt.Fprintf(out, "%s: %s\n", sl.Shown(), sl.State)
 		}
 		return 0, nil
 	}

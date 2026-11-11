@@ -10,6 +10,7 @@ import (
 	"io"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -230,11 +231,12 @@ func (r *run) groups(from, to int) []pool.Group {
 					continue
 				}
 				u := r.unit(unit{si, ai, side})
-				if gi, ok := index[s.Package]; ok {
+				pkg, _ := s.On(side == base)
+				if gi, ok := index[pkg]; ok {
 					out[gi].Rest = append(out[gi].Rest, u)
 					continue
 				}
-				index[s.Package] = len(out)
+				index[pkg] = len(out)
 				out = append(out, pool.Group{Lead: u})
 			}
 		}
@@ -248,12 +250,19 @@ func (r *run) unit(u unit) pool.Unit {
 	if u.side == head {
 		release = r.opts.Head
 	}
+	pkg, name := s.On(u.side == base)
+	id := pkg + "_" + name
+	// A slice may be cut twice on a side, picked and in a pair. No slice
+	// name holds a "~".
+	if s.HeadName != "" {
+		name += "~" + strconv.Itoa(u.si)
+	}
 	return pool.Unit{
 		Release: release,
 		Arch:    arch,
-		Slice:   s.ID(),
-		Label:   s.ID() + "@" + sideNames[u.side],
-		Dir:     filepath.Join(sideNames[u.side], s.Package, arch, s.Name),
+		Slice:   id,
+		Label:   id + "@" + sideNames[u.side],
+		Dir:     filepath.Join(sideNames[u.side], pkg, arch, name),
 		Tag:     u,
 	}
 }
@@ -313,13 +322,14 @@ func (r *run) inherit() {
 				if side == head {
 					cell = &s.Cuts[ai].Head
 				}
-				first, ok := lead[s.Package]
+				pkg, _ := s.On(side == base)
+				first, ok := lead[pkg]
 				if !ok {
-					lead[s.Package] = cell
+					lead[pkg] = cell
 					continue
 				}
-				if cell.Status == None && first.Status == NotAvailable && first.Missing == s.Package {
-					cell.Status, cell.Missing, cell.Ignored = Skipped, s.Package, first.Ignored
+				if cell.Status == None && first.Status == NotAvailable && first.Missing == pkg {
+					cell.Status, cell.Missing, cell.Ignored = Skipped, pkg, first.Ignored
 				}
 			}
 		}
@@ -335,6 +345,9 @@ func (r *run) settle(s *Slice, c *Cut) {
 	for i, side := range sides {
 		if planned[i] && side.Status == None {
 			side.Status, side.Missing = Skipped, s.Package
+			if i == head {
+				side.Missing, _ = s.On(false)
+			}
 		}
 	}
 	gone := func(side *Side) bool { return side.Status == NotAvailable || side.Status == Skipped }

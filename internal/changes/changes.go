@@ -170,10 +170,44 @@ type Slice struct {
 	// Prefer is set for a slice that is cut for no other reason than that
 	// it lists a path its package gives away with prefer.
 	Prefer bool
+	// HeadPackage and HeadName are set for a pair, --slice <a>:<b>: the
+	// slice at the base is Package and Name, the one at the head these.
+	// HeadPackage is "" when it is Package.
+	HeadPackage, HeadName string
 }
 
-// ID is the slice as chisel names it, <package>_<slice>.
+// ID is the slice as chisel names it, <package>_<slice>; for a pair, the
+// slice at the base.
 func (s Slice) ID() string { return s.Package + "_" + s.Name }
+
+// HeadID is the slice at the head as chisel names it.
+func (s Slice) HeadID() string {
+	pkg, name := s.On(false)
+	return pkg + "_" + name
+}
+
+// On is the package and slice cut on a side: the base, or the head.
+func (s Slice) On(base bool) (pkg, name string) {
+	if base || s.HeadName == "" {
+		return s.Package, s.Name
+	}
+	if s.HeadPackage != "" {
+		return s.HeadPackage, s.HeadName
+	}
+	return s.Package, s.HeadName
+}
+
+// Shown is the slice as a report names it: its ID, or for a pair the two
+// as --slice takes them.
+func (s Slice) Shown() string {
+	switch {
+	case s.HeadName == "":
+		return s.ID()
+	case s.HeadPackage == "":
+		return s.ID() + ":" + s.HeadName
+	}
+	return s.ID() + ":" + s.HeadID()
+}
 
 // CutBase and CutHead say on which sides the slice is cut. A changed slice
 // is cut on both and so is any slice picked or cut for prefer that both
@@ -256,7 +290,9 @@ func Packages(base, head *Release) []string {
 // file differs between the two releases, byte for byte, and with either the
 // package of any <package>_<slice> pick. picks are --slice values: a bare name
 // picks the slices of that name in the packages considered, "all" every
-// slice of them.
+// slice of them. <a>:<b> pairs slice a at the base with slice b at the head,
+// in every package considered that has both when the two are bare, and in
+// <package> for <package>_<a>:<b> or <package>_<a>:<other>_<b>.
 func Compare(base, head *Release, named, picks []string) (*Result, error) {
 	res := &Result{ChiselYAMLDiffers: !bytes.Equal(base.chiselYAML, head.chiselYAML), ArchiveDiffers: map[string]bool{}}
 	for pkg, b := range base.files {
@@ -281,8 +317,20 @@ func Compare(base, head *Release, named, picks []string) (*Result, error) {
 		}
 		sort.Strings(considered)
 	}
+	var pairs []pair
 	for _, pick := range picks {
 		if pick == "all" {
+			continue
+		}
+		if strings.Contains(pick, ":") {
+			pr, err := parsePair(pick)
+			if err != nil {
+				return nil, err
+			}
+			if pr.pkg != "" {
+				considered = append(considered, pr.pkg)
+			}
+			pairs = append(pairs, pr)
 			continue
 		}
 		if pkg, _, ok := strings.Cut(pick, "_"); ok {
@@ -345,7 +393,37 @@ func Compare(base, head *Release, named, picks []string) (*Result, error) {
 			}
 			p.Slices = append(p.Slices, s)
 		}
+		for _, pr := range pairs {
+			if pr.pkg != "" && pr.pkg != name {
+				continue
+			}
+			hp := pr.headPkg
+			if hp == "" {
+				hp = name
+			}
+			hf := head.files[hp]
+			atBase, atHead := b != nil && has(b, pr.a), hf != nil && has(hf, pr.b)
+			switch {
+			case pr.pkg != "" && !atBase:
+				return nil, fmt.Errorf("--slice %s: %s_%s is not at the base", pr.text, name, pr.a)
+			case pr.pkg != "" && !atHead:
+				return nil, fmt.Errorf("--slice %s: %s_%s is not at the head", pr.text, hp, pr.b)
+			case !atBase || !atHead:
+				continue
+			}
+			s := Slice{Package: name, Name: pr.a, State: Changed, Picked: true, HeadName: pr.b}
+			if hp != name {
+				s.HeadPackage = hp
+			}
+			matched[pr.text] = true
+			p.Slices = append(p.Slices, s)
+		}
 		res.Packages = append(res.Packages, p)
+	}
+	for _, pr := range pairs {
+		if !matched[pr.text] {
+			return nil, fmt.Errorf("--slice %s: no package considered has %s at the base and %s at the head", pr.text, pr.a, pr.b)
+		}
 	}
 	var unknown []string
 	for name := range bare {
@@ -376,13 +454,46 @@ func Compare(base, head *Release, named, picks []string) (*Result, error) {
 	cut := false
 	covered := map[string]bool{}
 	for _, s := range res.Reported() {
-		covered[s.ID()] = true
+		// A pair cuts another slice at the head, so it covers nothing.
+		if s.HeadName == "" {
+			covered[s.ID()] = true
+		}
 		cut = cut || s.CutBase() || s.CutHead()
 	}
 	if cut {
 		res.Prefer = preferring(base, head, covered)
 	}
 	return res, nil
+}
+
+// pair is a --slice <a>:<b> value.
+type pair struct {
+	text    string
+	pkg     string // the base slice's package; "" for every package
+	a, b    string // the slices at the base and at the head
+	headPkg string // the head slice's package; "" for the base's
+}
+
+func parsePair(pick string) (pair, error) {
+	left, right, _ := strings.Cut(pick, ":")
+	pr := pair{text: pick}
+	if left == "" || right == "" || strings.Contains(right, ":") {
+		return pr, fmt.Errorf("--slice %s: a pair is <a>:<b>, as <slice>:<slice> or <package>_<slice>:<slice>", pick)
+	}
+	pr.a, pr.b = left, right
+	if pkg, name, ok := strings.Cut(left, "_"); ok {
+		pr.pkg, pr.a = pkg, name
+	}
+	if pkg, name, ok := strings.Cut(right, "_"); ok {
+		if pr.pkg == "" {
+			return pr, fmt.Errorf("--slice %s: a bare slice at the base pairs with a bare one at the head", pick)
+		}
+		if pkg != pr.pkg {
+			pr.headPkg = pkg
+		}
+		pr.b = name
+	}
+	return pr, nil
 }
 
 // preferring are the slices on both sides that list a path their package
