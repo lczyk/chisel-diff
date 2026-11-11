@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -31,6 +32,7 @@ func renderText(w io.Writer, res *diff.Result, group bool, st style) {
 		}
 		var arches []string
 		var items [][]fold.Item
+		rawTags := map[string]string{} // arch and raw path -> the raw tag
 		versions := map[string]string{}
 		notes := map[string][]string{} // what is said of the slice -> the architectures
 		var order []string
@@ -40,6 +42,9 @@ func renderText(w io.Writer, res *diff.Result, group bool, st style) {
 			case diff.Compared, diff.Listed:
 				arches = append(arches, c.Arch)
 				items = append(items, cutItems(c))
+				for _, it := range items[len(items)-1] {
+					rawTags[c.Arch+"\x00"+it.Raw] = it.RawTag
+				}
 				continue
 			}
 			// A base pruned and cut opposite a head that is not: what
@@ -59,7 +64,7 @@ func renderText(w io.Writer, res *diff.Result, group bool, st style) {
 				continue
 			}
 			fmt.Fprintf(w, "%s%s%s%s %s [%s]\n", st.name, s.Package, st.reset, versions[g.Arches[0]], s.Name, strings.Join(g.Arches, ", "))
-			for _, line := range lines(g) {
+			for _, line := range lines(g, rawTags) {
 				fmt.Fprintln(w, st.line(line))
 			}
 		}
@@ -196,26 +201,48 @@ func groups(arches []string, items [][]fold.Item, group bool) []fold.Group {
 	return out
 }
 
-// lines are a group's entries as the report prints them: the lost ones,
-// then the gained ones, each sorted by path.
-func lines(g fold.Group) []string {
+// lines are a group's entries as the report prints them: lost, gained,
+// changed, deleted from the base, each sorted by path. A changed entry's
+// descriptions are each architecture's own when they all agree, so a group
+// of one shows its real symlink target, and the normalised ones otherwise.
+func lines(g fold.Group, rawTags map[string]string) []string {
+	entries := slices.Clone(g.Entries)
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Shown() < entries[j].Shown() })
 	var lost, gained, changed, pruned []string
-	for _, e := range g.Entries {
-		switch change, what, _ := strings.Cut(e.Tag, " "); diff.Change(change) {
+	for _, e := range entries {
+		change, b, h := splitTag(e.Tag)
+		switch change {
 		case diff.Lost:
 			lost = append(lost, "-"+e.Shown())
 		case diff.Gained:
 			gained = append(gained, "+"+e.Shown())
 		case diff.Changed:
-			changed = append(changed, "~"+e.Shown()+": "+what)
+			if raw := rawTags[g.Arches[0]+"\x00"+e.Raw[0]]; raw != "" {
+				same := true
+				for i, arch := range g.Arches {
+					same = same && rawTags[arch+"\x00"+e.Raw[i]] == raw
+				}
+				if same {
+					_, b, h = splitTag(raw)
+				}
+			}
+			changed = append(changed, "~"+e.Shown()+": "+b+" -> "+h)
 		default:
 			pruned = append(pruned, "!"+e.Shown()+": no content")
 		}
 	}
-	for _, l := range [][]string{lost, gained, changed, pruned} {
-		sort.Strings(l)
-	}
 	return append(append(append(lost, gained...), changed...), pruned...)
+}
+
+// splitTag reads a finding's tag: the change and, for a changed entry, the
+// two descriptions. A NUL keeps them apart, since a symlink target may
+// itself hold " -> ".
+func splitTag(tag string) (diff.Change, string, string) {
+	parts := strings.SplitN(tag, "\x00", 3)
+	if len(parts) < 3 {
+		return diff.Change(parts[0]), "", ""
+	}
+	return diff.Change(parts[0]), parts[1], parts[2]
 }
 
 // item is a finding as fold takes it. The tag is the change, and for a
@@ -235,8 +262,8 @@ func item(f diff.Finding, arch string) fold.Item {
 			}
 			return e.String()
 		}
-		it.Tag += " " + describe(f.Base, true) + " -> " + describe(f.Head, true)
-		it.RawTag = string(f.Change) + " " + describe(f.Base, false) + " -> " + describe(f.Head, false)
+		it.Tag += "\x00" + describe(f.Base, true) + "\x00" + describe(f.Head, true)
+		it.RawTag = string(f.Change) + "\x00" + describe(f.Base, false) + "\x00" + describe(f.Head, false)
 	}
 	return it
 }

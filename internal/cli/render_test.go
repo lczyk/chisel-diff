@@ -130,6 +130,22 @@ func TestRenderChanged(t *testing.T) {
 `)
 	assert.Equal(t, summary(res), "1 slices compared, 1 differ, 2 lost, 0 gained, 6 changed")
 
+	// One architecture: its own symlink target, and paths sorted as paths.
+	// A target holding the arrow does not fold with one that does not.
+	out.Reset()
+	renderText(&out, &diff.Result{Slices: []diff.Slice{sl("x", "bins", changes.Changed,
+		compared("amd64", "1", changed("/a-foo", false, file(0644), file(0755)), changed("/a", false, file(0644), file(0755)),
+			changed("/l", false, link("/usr/lib/x86_64-linux-gnu/x"), link("b -> symlink to c"))),
+		compared("arm64", "1", changed("/l", false, link("/usr/lib/aarch64-linux-gnu/x -> symlink to b"), link("c"))),
+	)}}, true, style{})
+	assert.Equal(t, out.String(), `x 1 bins [amd64]
+~/a: file 0644 -> file 0755
+~/a-foo: file 0644 -> file 0755
+~/l: symlink to /usr/lib/x86_64-linux-gnu/x -> symlink to b -> symlink to c
+x 1 bins [arm64]
+~/l: symlink to /usr/lib/aarch64-linux-gnu/x -> symlink to b -> symlink to c
+`)
+
 	// A pruned base opposite a head that is not there: the deletion and
 	// the note.
 	out.Reset()

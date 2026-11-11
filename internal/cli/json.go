@@ -144,8 +144,8 @@ func renderJSON(w io.Writer, run jsonRun, plan *changes.Result, slices []diff.Sl
 		}
 		for _, g := range groups(arches, items, group) {
 			for _, e := range g.Entries {
-				change, _, _ := strings.Cut(e.Tag, " ")
-				f := jsonFinding{Path: e.Shown(), Change: diff.Change(change), Arches: g.Arches}
+				change, _, _ := splitTag(e.Tag)
+				f := jsonFinding{Path: e.Shown(), Change: change, Arches: g.Arches}
 				if f.Change == diff.Changed {
 					first := byRaw[g.Arches[0]+"\x00"+e.Raw[0]]
 					f.Base, f.Head = entry(first.Base), entry(first.Head)
