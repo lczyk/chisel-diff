@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/lczyk/chisel-coverage/pkg/fold"
@@ -269,12 +270,15 @@ func item(f diff.Finding, arch string) fold.Item {
 	return it
 }
 
-// summary is the line -v ends with: slices are counted once each whatever
-// the number of architectures, one that differs on any of them differs, and
-// entries are counted per architecture as the text report shows them, a
-// directory left out when something under it is in the same state.
-func summary(res *diff.Result) string {
-	compared, differ, lost, gained, changed := 0, 0, 0, 0, 0
+// summary is the line -v ends with, shaped like git diff --shortstat:
+// "4 of 4 slices differ, 0 paths gained(+), 124 paths lost(-), 0
+// changed(~)", and "1 no content(!)" when there is any. Slices are counted
+// once each whatever the number of architectures, one that differs on any of
+// them differs, and paths are counted per architecture as the text report
+// shows them, a directory left out when something under it is in the same
+// state. A count is coloured by whether it is good news.
+func summary(res *diff.Result, st style) string {
+	compared, differ, lost, gained, changed, pruned := 0, 0, 0, 0, 0, 0
 	for _, s := range res.Slices {
 		was, differs := false, false
 		for _, c := range s.Cuts {
@@ -293,6 +297,7 @@ func summary(res *diff.Result) string {
 				case diff.Changed:
 					changed++
 				default:
+					pruned++
 					continue
 				}
 				differs = true
@@ -305,5 +310,29 @@ func summary(res *diff.Result) string {
 			differ++
 		}
 	}
-	return fmt.Sprintf("%d slices compared, %d differ, %d lost, %d gained, %d changed", compared, differ, lost, gained, changed)
+	paint := func(n int, zero, more string) string {
+		c := more
+		if n == 0 {
+			c = zero
+		}
+		if c == "" {
+			return strconv.Itoa(n)
+		}
+		return c + strconv.Itoa(n) + st.reset
+	}
+	plural := func(n int, one, many string) string {
+		if n == 1 {
+			return one
+		}
+		return many
+	}
+	out := fmt.Sprintf("%s of %d %s %s, %s %s gained(+), %s %s lost(-), %s changed(~)",
+		paint(differ, st.green, st.yellow), compared, plural(compared, "slice", "slices"), plural(differ, "differs", "differ"),
+		paint(gained, "", st.green), plural(gained, "path", "paths"),
+		paint(lost, st.green, st.red), plural(lost, "path", "paths"),
+		paint(changed, "", st.yellow))
+	if pruned > 0 {
+		out += fmt.Sprintf(", %s no content(!)", paint(pruned, "", st.yellow))
+	}
+	return out
 }

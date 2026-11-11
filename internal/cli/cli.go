@@ -222,7 +222,7 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 		renderText(out, result, !f.NoGroup, styleFor(out))
 	}
 	if len(f.Verbose) >= 1 {
-		notef("%s", summary(result))
+		notef("%s", summary(result, styleFor(os.Stderr)))
 	}
 	for _, err := range result.Errors {
 		errf(err)
