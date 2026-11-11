@@ -360,6 +360,22 @@ func TestPairs(t *testing.T) {
 	assert.EqualArrays(t, shown, []string{"jdk17_awt:awt-core", "other_awt:jdk21_awt-core"})
 	assert.Equal(t, res.Reported()[1].HeadID(), "jdk21_awt-core")
 
+	// The same tree on both sides: no file differs, and a bare pair still
+	// finds every package that has both.
+	res, err = Compare(head, head, nil, []string{"awt:awt-core"})
+	assert.NoError(t, err)
+	shown = nil
+	for _, s := range res.Reported() {
+		shown = append(shown, s.Shown())
+	}
+	assert.EqualArrays(t, shown, []string{"jdk17_awt:awt-core", "jdk21_awt:awt-core"})
+	// Packages named narrow it.
+	res, err = Compare(head, head, []string{"jdk21"}, []string{"awt:awt-core"})
+	assert.NoError(t, err)
+	assert.Len(t, res.Reported(), 1)
+	_, err = Compare(head, head, []string{"other"}, []string{"awt:awt-core"})
+	assert.Error(t, err, "no package named has awt at the base and awt-core at the head")
+
 	// Mixed with an ordinary pick.
 	res, err = Compare(base, head, []string{"jdk17"}, []string{"awt:awt-core", "awt"})
 	assert.NoError(t, err)
@@ -377,7 +393,7 @@ func TestPairs(t *testing.T) {
 		"jdk17_nope:awt-core": "jdk17_nope is not at the base",
 		"jdk17_awt:nope":      "jdk17_nope is not at the head",
 		"jdk17_awt-core:awt":  "jdk17_awt-core is not at the base",
-		"awt-core:awt":        "no package considered has awt-core at the base and awt at the head",
+		"awt-core:awt":        "no package has awt-core at the base and awt at the head",
 	} {
 		_, err := Compare(base, head, nil, []string{pick})
 		assert.Error(t, err, want)

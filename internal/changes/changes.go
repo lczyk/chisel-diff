@@ -291,7 +291,8 @@ func Packages(base, head *Release) []string {
 // package of any <package>_<slice> pick. picks are --slice values: a bare name
 // picks the slices of that name in the packages considered, "all" every
 // slice of them. <a>:<b> pairs slice a at the base with slice b at the head,
-// in every package considered that has both when the two are bare, and in
+// in every package that has both when the two are bare (every package named,
+// when some are), and in
 // <package> for <package>_<a>:<b> or <package>_<a>:<other>_<b>.
 func Compare(base, head *Release, named, picks []string) (*Result, error) {
 	res := &Result{ChiselYAMLDiffers: !bytes.Equal(base.chiselYAML, head.chiselYAML), ArchiveDiffers: map[string]bool{}}
@@ -339,6 +340,24 @@ func Compare(base, head *Release, named, picks []string) (*Result, error) {
 		} else {
 			bare[pick] = true
 		}
+	}
+	// A pair is a question of its own, whether or not the files changed: a
+	// bare one looks in every package that has both, unless packages are
+	// named.
+	if len(named) == 0 {
+		var extra []string
+		for _, pr := range pairs {
+			if pr.pkg != "" {
+				continue
+			}
+			for pkg, b := range base.files {
+				if h := head.files[pkg]; h != nil && has(b, pr.a) && has(h, pr.b) {
+					extra = append(extra, pkg)
+				}
+			}
+		}
+		sort.Strings(extra)
+		considered = append(considered, extra...)
 	}
 
 	seen := map[string]bool{}
@@ -422,7 +441,11 @@ func Compare(base, head *Release, named, picks []string) (*Result, error) {
 	}
 	for _, pr := range pairs {
 		if !matched[pr.text] {
-			return nil, fmt.Errorf("--slice %s: no package considered has %s at the base and %s at the head", pr.text, pr.a, pr.b)
+			where := "no package"
+			if len(named) > 0 {
+				where = "no package named"
+			}
+			return nil, fmt.Errorf("--slice %s: %s has %s at the base and %s at the head", pr.text, where, pr.a, pr.b)
 		}
 	}
 	var unknown []string
