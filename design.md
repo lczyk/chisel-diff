@@ -118,8 +118,13 @@ nothing | the `removed`, `added` and `changed` slices of the packages considered
 `--slice <name>` | slices of that name in the packages considered, whatever their state
 `--slice <package>_<name>` | that slice, and the package joins those considered
 `--slice all` | every slice of the packages considered, whatever its state
+`--slice <a>:<b>` | slice `a` at the base against slice `b` at the head, in every package considered that has both
+`--slice <package>_<a>:<b>` | the pair in that package, which joins those considered
+`--slice <package>_<a>:<other>_<b>` | a pair across two packages
 
-values add up, and `all` beside others is `all`. every name given must match a slice on some side, else it is an error, as is a package named on the command line with no file on either side. a picked `same` or `changed` slice is cut on both sides. a picked `added` or `removed` one is cut on the side that has it and listed, every entry gained or lost.
+values add up, and `all` beside others is `all`. every name given must match a slice on some side, else it is an error, as is a package named on the command line with no file on either side.
+
+a pair asks what one slice delivers that another does not, a slimmer `awt-v2` against the `awt` it is to replace say, where the sides alone would only call the new slice `added`. `:` is git's refspec shape, `<src>:<dst>`, and can be in no package or slice name. a bare base slice pairs with a bare head slice and a full one keeps its package for a bare head slice. a pair is reported as `<package>_<a>:<b>` (`<package>_<a>:<other>_<b>` across packages), counts for `--fail-missing` like any slice, so `--slice=awt:awt-v2 --fail-missing` is the check that `awt-v2` drops nothing `awt` delivers, and its json slice carries `head-package` and `head-slice`. a full pair whose slice is not on its side is an error, and so is a bare pair that no package considered has. the revisions still say what the sides are: with none, `awt` in the index against `awt-v2` on disk. a picked `same` or `changed` slice is cut on both sides. a picked `added` or `removed` one is cut on the side that has it and listed, every entry gained or lost.
 
 when `chisel.yaml` differs between the sides every slice that is on both sides is `changed`, with a notice. the packages considered stay the same, so a change to `chisel.yaml` alone compares nothing unless packages are named, and the notice says that too. that is exit 0, with `--fail-missing` as well: the tool compares slices, and what a new `chisel.yaml` does to the release is not its question. cutting the whole release is hours.
 
@@ -227,8 +232,10 @@ chisel-diff [flags] --no-index <dir> <dir> [<package>...]
       --arch=<a>[,<a>...]      architectures to compare; "all" for every one
                                (default: host)
       --slice=<s>[,<s>...]     these slices, bare or <package>_<slice>,
-                               changed or not; "all" for every slice
-                               (default: removed, added and changed)
+                               changed or not; "all" for every slice;
+                               <a>:<b> slice a at the base against slice b
+                               at the head (default: removed, added and
+                               changed)
       --fail-missing           exit 1 when a slice lost an entry or went away
       --name-status            name the slices and their states, cut nothing
       --no-group               one block per architecture with its real paths
