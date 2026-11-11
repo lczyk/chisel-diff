@@ -50,7 +50,7 @@ without packages, every package whose file differs between the two sides is look
 
 `-T` / `--tree` draws each block's entries as a tree of their paths, each entry's sign glued to its name as the flat report glues it to the path.
 
-`-P` / `--packages` ends each entry with the packages it comes from, `-/usr/lib/x86_64-linux-gnu/libuuid.so.1 <- libuuid1`, and `--packages=slices` with the slices. chisel says which: every cut also writes chisel's manifest, through a slice added to a copy of the package's file, and the manifest names the slices of each path. a directory chisel made only to hold others comes from none and has no suffix. chisel cannot write a manifest for a release whose archive gives no sha256 digests, 26.10 for now, and the run then stops with chisel's error.
+`-P` / `--packages` ends each entry with the packages it comes from, `-/usr/lib/x86_64-linux-gnu/libuuid.so.1 (libuuid1)`, and `--packages=slices` with the slices. chisel says which: every cut also writes chisel's manifest, through a slice added to a copy of the package's file, and the manifest names the slices of each path. a directory chisel made only to hold others comes from none and has no suffix. chisel cannot write a manifest for a release whose archive gives no sha256 digests, 26.10 for now, and the run then stops with chisel's error.
 
 `--json` is the same report as one document, with every cut's outcome on both sides and every entry, directories too.
 
