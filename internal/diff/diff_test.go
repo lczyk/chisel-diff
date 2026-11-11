@@ -373,6 +373,20 @@ func TestABaseThatCannotBePrunedIsAnError(t *testing.T) {
 	assert.EqualArrays(t, c.Base.Pruned, []string{"/base"})
 	assert.Equal(t, findings(c), "!/base")
 	assert.That(t, !res.Missing())
+
+	// The same, with the head gone from this arch: the deletion is still
+	// told, and the slice no longer cutting is what counts.
+	f.write(f.head, "fake/na/amd64/bash", "")
+	res = f.run([]string{"amd64"}, nil, nil, Options{OneArchive: true})
+	c = res.Slices[0].Cuts[0]
+	assert.Equal(t, c.Outcome, HeadNotAvailable)
+	assert.Equal(t, findings(c), "!/base")
+	assert.That(t, res.Missing())
+
+	// Every release copied for pruning is gone after the run.
+	left, err := filepath.Glob(filepath.Join(os.Getenv("TMPDIR"), "chisel-diff-pruned-*"))
+	assert.NoError(t, err)
+	assert.Len(t, left, 0)
 }
 
 func TestPickedSlices(t *testing.T) {

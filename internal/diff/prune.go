@@ -3,6 +3,7 @@ package diff
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -16,7 +17,7 @@ import (
 type pruning struct {
 	u       unit
 	release string
-	pruned  []string
+	pruned  []string // the entries of the unit's own slice deleted so far
 }
 
 // prune deals with a base the archive has moved under. A slice that names a
@@ -27,7 +28,9 @@ type pruning struct {
 // empty root, round after round. Each round must delete something, so it
 // ends: when the cut passes, or with the unit's error when chisel names
 // something no entry has as its source. Only chisel's plain no content
-// failures are read this way: the hard link one is a failure.
+// failures are read this way: the hard link one is a failure. Chisel names
+// paths, not slices, so the entries go from every slice of the package, and
+// a unit reports those of its own slice.
 func (r *run) prune(p *pool.Pool) error {
 	var todo []*pruning
 	for si := range r.slices {
@@ -37,13 +40,13 @@ func (r *run) prune(p *pool.Pool) error {
 			}
 		}
 	}
+	var made []string // every release copied, whatever became of its unit
 	defer func() {
-		if r.opts.Keep {
-			return
-		}
-		for _, t := range todo {
-			if t.release != r.opts.Base {
-				_ = os.RemoveAll(t.release)
+		for _, dir := range made {
+			if r.opts.Keep {
+				fmt.Fprintf(logOf(r.opts), "pruned release: %s\n", dir)
+			} else {
+				_ = os.RemoveAll(dir)
 			}
 		}
 	}()
@@ -62,6 +65,7 @@ func (r *run) prune(p *pool.Pool) error {
 				if err != nil {
 					return err
 				}
+				made = append(made, dir)
 				if err := copyDir(r.opts.Base, dir); err != nil {
 					return err
 				}
@@ -75,7 +79,11 @@ func (r *run) prune(p *pool.Pool) error {
 				side.Err = fmt.Errorf("%w (no entry of %s has that as its source, so the base cannot be pruned)", side.Err, ce.Package)
 				continue
 			}
-			t.pruned = append(t.pruned, removed...)
+			for _, p := range removed {
+				if p.Slice == r.slices[t.u.si].Name {
+					t.pruned = append(t.pruned, p.Key)
+				}
+			}
 			u := r.unit(t.u)
 			u.Release = t.release
 			u.Label += fmt.Sprintf("-pruned-%d", round)
@@ -105,6 +113,13 @@ func (r *run) prune(p *pool.Pool) error {
 		}
 	}
 	return nil
+}
+
+func logOf(o Options) io.Writer {
+	if o.Log == nil {
+		return io.Discard
+	}
+	return o.Log
 }
 
 // copyDir copies a snapshot of a release, which holds plain files only.

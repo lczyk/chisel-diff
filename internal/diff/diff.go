@@ -365,6 +365,8 @@ func (r *run) settle(s *Slice, c *Cut) {
 	default:
 		c.Outcome = Compared
 		c.Findings = compare(c.Base.entries, c.Head.entries)
+	}
+	if c.Base.Status == WasCut {
 		for _, path := range c.Base.Pruned {
 			c.Findings = append(c.Findings, Finding{Path: strings.TrimSuffix(path, "/"), Dir: strings.HasSuffix(path, "/"), Change: NoContent})
 		}

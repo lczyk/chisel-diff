@@ -130,6 +130,15 @@ func TestRenderChanged(t *testing.T) {
 `)
 	assert.Equal(t, summary(res), "1 slices compared, 1 differ, 2 lost, 0 gained, 6 changed")
 
+	// A pruned base opposite a head that is not there: the deletion and
+	// the note.
+	out.Reset()
+	renderText(&out, &diff.Result{Slices: []diff.Slice{sl("apparmor", "profiles", changes.Changed, diff.Cut{
+		Arch: "amd64", Outcome: diff.HeadNotAvailable, Findings: []diff.Finding{{Path: "/etc/apparmor.d/busybox", Change: diff.NoContent}},
+		Base: diff.Side{Status: diff.WasCut, Version: "4.0", Pruned: []string{"/etc/apparmor.d/busybox"}}, Head: diff.Side{Status: diff.NotAvailable, Missing: "apparmor"},
+	})}}, true)
+	assert.Equal(t, out.String(), "apparmor 4.0 profiles [amd64]\n!/etc/apparmor.d/busybox: no content\napparmor profiles [amd64]: head not available\n")
+
 	out.Reset()
 	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, res.Slices[:1], true))
 	assert.ContainsString(t, out.String(), `{"path":"/usr/bin/su","change":"changed","arches":["amd64","arm64"],"base":{"kind":"file","mode":"4755"},"head":{"kind":"file","mode":"0755"}}`)

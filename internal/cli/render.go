@@ -41,6 +41,12 @@ func renderText(w io.Writer, res *diff.Result, group bool) {
 				items = append(items, cutItems(c))
 				continue
 			}
+			// A base pruned and cut opposite a head that is not: what
+			// was deleted from it is still told.
+			if len(c.Findings) > 0 {
+				arches = append(arches, c.Arch)
+				items = append(items, cutItems(c))
+			}
 			note := note(s, c)
 			if _, ok := notes[note]; !ok {
 				order = append(order, note)

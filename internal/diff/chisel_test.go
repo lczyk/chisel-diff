@@ -260,7 +260,7 @@ func TestRealChisel(t *testing.T) {
 			assert.Equal(t, c.Outcome, Compared)
 			want := "-/usr/bin/tool !/nope"
 			if strings.Count(extra, "\n") > 1 {
-				want = "-/usr/bin/tool !/nope !/nada/** !/usr/bin/renamed"
+				want = "-/usr/bin/tool !/nada/** !/nope !/usr/bin/renamed"
 			}
 			assert.Equal(t, got, want)
 			assert.That(t, len(c.Base.Pruned) == strings.Count(extra, "\n"), "%v", c.Base.Pruned)

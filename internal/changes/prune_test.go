@@ -3,6 +3,7 @@ package changes
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/lczyk/assert"
@@ -32,7 +33,7 @@ slices:
 	assert.NoError(t, err)
 	// By source: the key, or the copy value. In every slice of the package
 	// and in no other package.
-	assert.EqualArrays(t, removed, []string{"/usr/bin/gone", "/usr/bin/renamed", "/usr/share/man/**"})
+	assert.EqualArrays(t, removed, []Pruned{{"bins", "/usr/bin/gone"}, {"bins", "/usr/bin/renamed"}, {"bins", "/usr/share/man/**"}, {"config", "/usr/bin/gone"}})
 	after, err := Load(r.Dir)
 	assert.NoError(t, err)
 	assert.EqualArrays(t, after.files["demo"].paths["bins"], []string{"/usr/bin/demo"})
@@ -52,4 +53,33 @@ slices:
 
 	_, err = Prune(r.Dir, "ghost", []string{"/x"})
 	assert.Error(t, err, "package ghost has no file")
+}
+
+func TestPruneThroughAliasesAndMerges(t *testing.T) {
+	// An entry's options are an anchor another entry uses, and a slice
+	// takes its contents through a merge key. Deleting the anchor's entry
+	// must leave the rest readable.
+	r := release(t, map[string]string{"slices/demo.yaml": `package: demo
+common: &common
+  /usr/bin/inherited:
+  /usr/bin/gone-too:
+slices:
+  bins:
+    contents:
+      /usr/bin/gone: &opts {arch: [amd64]}
+      /usr/bin/kept: *opts
+  more:
+    contents:
+      <<: *common
+      /usr/bin/own:
+`})
+	removed, err := Prune(r.Dir, "demo", []string{"/usr/bin/gone", "/usr/bin/gone-too"})
+	assert.NoError(t, err)
+	assert.EqualArrays(t, removed, []Pruned{{"bins", "/usr/bin/gone"}, {"more", "/usr/bin/gone-too"}})
+	after, err := Load(r.Dir)
+	assert.NoError(t, err)
+	assert.EqualArrays(t, after.files["demo"].paths["bins"], []string{"/usr/bin/kept"})
+	got := append([]string{}, after.files["demo"].paths["more"]...)
+	sort.Strings(got)
+	assert.EqualArrays(t, got, []string{"/usr/bin/inherited", "/usr/bin/own"})
 }
