@@ -77,6 +77,7 @@ type Sides struct {
 	Notices    []string // what a reader should know of how the sides were resolved
 	Warnings   []string // what looks unusual enough to be a mistake
 	tmp        string
+	named      string // the release name --release gave; "" for a checkout
 }
 
 // Remove deletes the snapshots.
@@ -109,6 +110,19 @@ func Resolve(ctx context.Context, spec Spec) (*Sides, error) {
 	for _, side := range []*Side{&s.Base, &s.Head} {
 		side.Release, _ = releaseOf(filepath.Join(side.Dir, "chisel.yaml"))
 	}
+	// A release name only says which branches the revisions are looked up
+	// among: a sha or another branch cuts what its own chisel.yaml says.
+	if s.named != "" {
+		if s.Base.Release == s.Head.Release && s.Base.Release != "" && s.Base.Release != s.named {
+			s.notef("the revisions are of %s, not %s: --release only says where they are looked up, and what is cut is the release their chisel.yaml names", s.Base.Release, s.named)
+		} else if s.Base.Release != s.Head.Release {
+			for i, side := range []Side{s.Base, s.Head} {
+				if side.Release != "" && side.Release != s.named {
+					s.notef("the %s is of %s, not %s: --release only says where the revisions are looked up", [2]string{"base", "head"}[i], side.Release, s.named)
+				}
+			}
+		}
+	}
 	return s, nil
 }
 
@@ -131,6 +145,7 @@ func (s *Sides) revisions(ctx context.Context, spec Spec) error {
 		return err
 	}
 	g := r.g
+	s.named = r.named
 	revs, mergeBase := spec.Revisions, spec.MergeBase
 	if r.named != "" && spec.Cached {
 		return fmt.Errorf("--cached needs a checkout, and %s is a release name", r.named)

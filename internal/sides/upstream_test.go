@@ -134,6 +134,19 @@ func TestNamedRelease(t *testing.T) {
 	assert.Equal(t, s.Head.Release, "ubuntu-26.04")
 	s.Remove()
 
+	// The revisions are another release's: said, and cut as they are.
+	s, err = Resolve(context.Background(), named(up, cache, "ubuntu-24.04", "ubuntu-26.04~1..ubuntu-26.04"))
+	assert.NoError(t, err)
+	assert.Equal(t, s.Base.Release, "ubuntu-26.04")
+	assert.EqualArrays(t, s.Notices, []string{"the revisions are of ubuntu-26.04, not ubuntu-24.04: --release only says where they are looked up, and what is cut is the release their chisel.yaml names"})
+	s.Remove()
+	spec = named(up, cache, "ubuntu-24.04", "ubuntu-24.04..ubuntu-26.04")
+	spec.Unrelated = true
+	s, err = Resolve(context.Background(), spec)
+	assert.NoError(t, err)
+	assert.Equal(t, s.Notices[len(s.Notices)-1], "the head is of ubuntu-26.04, not ubuntu-24.04: --release only says where the revisions are looked up")
+	s.Remove()
+
 	// A fetch that fails leaves the clone as it was, and says so.
 	gone := named(up, cache, "ubuntu-26.04", "HEAD~1")
 	gone.Upstream = filepath.Join(t.TempDir(), "gone")
