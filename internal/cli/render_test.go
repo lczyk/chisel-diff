@@ -55,21 +55,21 @@ func TestRenderText(t *testing.T) {
 	}}
 	var out bytes.Buffer
 	renderText(&out, res, true, style{})
-	assert.Equal(t, out.String(), `bash 5.2-1 bins [amd64, arm64]
+	assert.Equal(t, out.String(), `bash_bins 5.2-1 [amd64, arm64]
 -/etc/bash/rc
 -/usr/lib/<arch>-linux-<gnu>/b.so
 +/usr/bin/new
 +/var/empty/
-bash 5.2-1 bins [arm64]
+bash_bins 5.2-1 [arm64]
 -/usr/bin/only-arm
 bash [riscv64]: not available
-bash scripts: added
-bash old: removed
-ruby 3.3 -> 3.4 libs [i386]
+bash_scripts: added
+bash_old: removed
+ruby_libs 3.3 -> 3.4 [i386]
 +/x
-ruby libs [amd64]: head not available: libfoo (skipped archives: esm-apps, esm-infra)
-ruby libs [arm64]: base not available
-ruby libs [s390x]: error
+ruby_libs [amd64]: head not available: libfoo (skipped archives: esm-apps, esm-infra)
+ruby_libs [arm64]: base not available
+ruby_libs [s390x]: error
 `)
 
 	// A package that is missing says so once, with the archives skipped,
@@ -86,12 +86,12 @@ ruby libs [s390x]: error
 	// Ungrouped: a block per architecture with its real paths.
 	out.Reset()
 	renderText(&out, &diff.Result{Slices: res.Slices[:1]}, false, style{})
-	assert.Equal(t, out.String(), `bash 5.2-1 bins [amd64]
+	assert.Equal(t, out.String(), `bash_bins 5.2-1 [amd64]
 -/etc/bash/rc
 -/usr/lib/x86_64-linux-gnu/b.so
 +/usr/bin/new
 +/var/empty/
-bash 5.2-1 bins [arm64]
+bash_bins 5.2-1 [arm64]
 -/etc/bash/rc
 -/usr/bin/only-arm
 -/usr/lib/aarch64-linux-gnu/b.so
@@ -122,7 +122,7 @@ func TestRenderChanged(t *testing.T) {
 	var out bytes.Buffer
 	renderText(&out, res, true, style{})
 	// A symlink target that names the architecture folds like a path.
-	assert.Equal(t, out.String(), `coreutils 9.4 bins [amd64, arm64]
+	assert.Equal(t, out.String(), `coreutils_bins 9.4 [amd64, arm64]
 -/usr/bin/basename
 ~/usr/bin/md5sum: file 0755 -> symlink to ../lib/<arch>-linux-<gnu>/md5sum
 ~/usr/bin/su: file 4755 -> file 0755
@@ -138,11 +138,11 @@ func TestRenderChanged(t *testing.T) {
 			changed("/l", false, link("/usr/lib/x86_64-linux-gnu/x"), link("b -> symlink to c"))),
 		compared("arm64", "1", changed("/l", false, link("/usr/lib/aarch64-linux-gnu/x -> symlink to b"), link("c"))),
 	)}}, true, style{})
-	assert.Equal(t, out.String(), `x 1 bins [amd64]
+	assert.Equal(t, out.String(), `x_bins 1 [amd64]
 ~/a: file 0644 -> file 0755
 ~/a-foo: file 0644 -> file 0755
 ~/l: symlink to /usr/lib/x86_64-linux-gnu/x -> symlink to b -> symlink to c
-x 1 bins [arm64]
+x_bins 1 [arm64]
 ~/l: symlink to /usr/lib/aarch64-linux-gnu/x -> symlink to b -> symlink to c
 `)
 
@@ -153,7 +153,7 @@ x 1 bins [arm64]
 		Arch: "amd64", Outcome: diff.HeadNotAvailable, Findings: []diff.Finding{{Path: "/etc/apparmor.d/busybox", Change: diff.NoContent}},
 		Base: diff.Side{Status: diff.WasCut, Version: "4.0", Pruned: []string{"/etc/apparmor.d/busybox"}}, Head: diff.Side{Status: diff.NotAvailable, Missing: "apparmor"},
 	})}}, true, style{})
-	assert.Equal(t, out.String(), "apparmor 4.0 profiles [amd64]\n!/etc/apparmor.d/busybox: no content\napparmor profiles [amd64]: head not available\n")
+	assert.Equal(t, out.String(), "apparmor_profiles 4.0 [amd64]\n!/etc/apparmor.d/busybox: no content\napparmor_profiles [amd64]: head not available\n")
 
 	out.Reset()
 	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, res.Slices[:1], true))
@@ -166,7 +166,7 @@ func TestRenderColoured(t *testing.T) {
 		compared("amd64", "5.2", lost("/a"), gained("/b"), diff.Finding{Path: "/c", Change: diff.NoContent}))}}
 	var out bytes.Buffer
 	renderText(&out, res, true, colours)
-	assert.Equal(t, out.String(), "\x1b[1;34mbash\x1b[0m 5.2 bins [amd64]\n\x1b[31m-/a\x1b[0m\n\x1b[32m+/b\x1b[0m\n\x1b[33m!/c: no content\x1b[0m\n")
+	assert.Equal(t, out.String(), "\x1b[1;34mbash_bins\x1b[0m 5.2 [amd64]\n\x1b[31m-/a\x1b[0m\n\x1b[32m+/b\x1b[0m\n\x1b[33m!/c: no content\x1b[0m\n")
 	// Not a terminal: no colour.
 	assert.Equal(t, styleFor(&out), style{})
 }

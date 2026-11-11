@@ -16,7 +16,7 @@ import (
 
 // renderText writes the report: nothing indented and no blank lines. A slice
 // that was compared is one block per set of architectures that agree, a
-// header "<package> <version> <slice> [arches]" and under it "-<path>" for
+// header "<package>_<slice> <version> [arches]" and under it "-<path>" for
 // an entry lost and "+<path>" for one gained, so grep '^-' is the list of
 // what went missing. A slice with nothing to show under a header is one
 // line, with what is to be said of it after a colon. "~<path>: <base> ->
@@ -27,7 +27,7 @@ func renderText(w io.Writer, res *diff.Result, group bool, st style) {
 	absent := map[string]bool{} // packages whose own absence was told
 	for _, s := range res.Slices {
 		if len(s.Cuts) == 0 {
-			fmt.Fprintf(w, "%s %s: %s\n", s.Package, s.Name, s.State)
+			fmt.Fprintf(w, "%s: %s\n", s.ID(), s.State)
 			continue
 		}
 		var arches []string
@@ -63,7 +63,7 @@ func renderText(w io.Writer, res *diff.Result, group bool, st style) {
 			if len(g.Entries) == 0 {
 				continue
 			}
-			fmt.Fprintf(w, "%s%s%s%s %s [%s]\n", st.name, s.Package, st.reset, versions[g.Arches[0]], s.Name, strings.Join(g.Arches, ", "))
+			fmt.Fprintf(w, "%s%s%s%s [%s]\n", st.name, s.ID(), st.reset, versions[g.Arches[0]], strings.Join(g.Arches, ", "))
 			for _, line := range lines(g, rawTags) {
 				fmt.Fprintln(w, st.line(line))
 			}
@@ -78,7 +78,7 @@ func renderText(w io.Writer, res *diff.Result, group bool, st style) {
 				}
 				continue
 			}
-			fmt.Fprintf(w, "%s %s [%s]: %s\n", s.Package, s.Name, strings.Join(notes[n], ", "), n)
+			fmt.Fprintf(w, "%s [%s]: %s\n", s.ID(), strings.Join(notes[n], ", "), n)
 		}
 	}
 }

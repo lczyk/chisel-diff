@@ -173,7 +173,7 @@ func TestNameStatus(t *testing.T) {
 	code, err := run(context.Background(), f, spec, pkgs, []string{"amd64"}, &out)
 	assert.NoError(t, err)
 	assert.Equal(t, code, 0)
-	assert.Equal(t, out.String(), "bash bins: changed\nbash config: removed\nbash scripts: added\n")
+	assert.Equal(t, out.String(), "bash_bins: changed\nbash_config: removed\nbash_scripts: added\n")
 
 	// The committed revision against itself: nothing to name.
 	out.Reset()
@@ -188,7 +188,7 @@ func TestNameStatus(t *testing.T) {
 	spec, pkgs, _ = f.spec([]string{"HEAD..HEAD", filepath.Join(dir, "slices", "bash.yaml")})
 	_, err = run(context.Background(), f, spec, pkgs, []string{"amd64"}, &out)
 	assert.NoError(t, err)
-	assert.Equal(t, out.String(), "bash bins: same\nbash config: same\n")
+	assert.Equal(t, out.String(), "bash_bins: same\nbash_config: same\n")
 
 	// A name no side has is an error.
 	f.Slices = []string{"scripts"}
@@ -208,7 +208,7 @@ func TestRunCutsAndReports(t *testing.T) {
 	assert.NoError(t, err)
 	// The working tree dropped rbash from bins and the config slice whole,
 	// and gained a scripts slice. Only bins is cut.
-	want := "bash 5.2-1 bins [amd64]\n-/etc/skel/.bashrc\n-/usr/bin/rbash\n+/usr/bin/bashbug\nbash config: removed\nbash scripts: added\n"
+	want := "bash_bins 5.2-1 [amd64]\n-/etc/skel/.bashrc\n-/usr/bin/rbash\n+/usr/bin/bashbug\nbash_config: removed\nbash_scripts: added\n"
 	assert.Equal(t, out.String(), want)
 	assert.Equal(t, code, 0)
 
@@ -258,10 +258,10 @@ func TestAcrossReleases(t *testing.T) {
 	// What is picked is looked for in every package, and only that.
 	out, err := run(flags{Release: dir, NameStatus: true, XRelease: true, Slices: []string{"bins"}}, "HEAD")
 	assert.NoError(t, err)
-	assert.Equal(t, out, "bash bins: changed\n")
+	assert.Equal(t, out, "bash_bins: changed\n")
 	out, err = run(flags{Release: dir, NameStatus: true, XRelease: true}, "HEAD", "bash")
 	assert.NoError(t, err)
-	assert.Equal(t, out, "bash bins: changed\nbash config: removed\nbash scripts: added\n")
+	assert.Equal(t, out, "bash_bins: changed\nbash_config: removed\nbash_scripts: added\n")
 }
 
 func TestASideChiselRefusesIsAnError(t *testing.T) {

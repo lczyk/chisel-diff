@@ -192,7 +192,7 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 			return 0, renderJSON(out, runInfo(runner.Bin, spec.Release, spec, s, res), res, named, !f.NoGroup)
 		}
 		for _, sl := range res.Reported() {
-			fmt.Fprintf(out, "%s %s: %s\n", sl.Package, sl.Name, sl.State)
+			fmt.Fprintf(out, "%s: %s\n", sl.ID(), sl.State)
 		}
 		return 0, nil
 	}
