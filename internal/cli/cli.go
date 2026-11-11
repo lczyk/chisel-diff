@@ -157,13 +157,17 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 		}
 	}
 	if f.NameStatus {
+		if f.JSON {
+			var named []diff.Slice
+			for _, sl := range res.Reported() {
+				named = append(named, diff.Slice{Slice: sl})
+			}
+			return 0, renderJSON(out, runInfo(runner.Bin, spec.Release, spec, s, res), res, named, !f.NoGroup)
+		}
 		for _, sl := range res.Reported() {
 			fmt.Fprintf(out, "%s %s: %s\n", sl.Package, sl.Name, sl.State)
 		}
 		return 0, nil
-	}
-	if f.JSON {
-		return 0, errors.New("--json is not built yet")
 	}
 	opts := diff.Options{
 		Base:       s.Base.Dir,
@@ -187,7 +191,13 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 	if err != nil {
 		return 0, err
 	}
-	renderText(out, result, !f.NoGroup)
+	if f.JSON {
+		if err := renderJSON(out, runInfo(runner.Bin, spec.Release, spec, s, res), res, result.Slices, !f.NoGroup); err != nil {
+			return 0, err
+		}
+	} else {
+		renderText(out, result, !f.NoGroup)
+	}
 	if len(f.Verbose) >= 1 {
 		notef("%s", summary(result))
 	}
