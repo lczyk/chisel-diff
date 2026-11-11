@@ -123,7 +123,7 @@ values add up, and `all` beside others is `all`. every name given must match a s
 
 when `chisel.yaml` differs between the sides every slice that is on both sides is `changed`, with a notice. the packages considered stay the same, so a change to `chisel.yaml` alone compares nothing unless packages are named, and the notice says that too. that is exit 0, with `--fail-missing` as well: the tool compares slices, and what a new `chisel.yaml` does to the release is not its question. cutting the whole release is hours.
 
-`--name-status` stops here. it prints one line per slice reported, `<package> <slice>: <state>`, and cuts nothing, so it needs no network and takes as long as the two snapshots and their validation. `--json` then holds the same slices with no cuts and no findings. with `--fail-missing` it is a usage error, since a check that cut nothing has not looked.
+`--name-status` stops here. it prints one line per slice reported, `<package>_<slice>: <state>`, and cuts nothing, so it needs no network and takes as long as the two snapshots and their validation. `--json` then holds the same slices with no cuts and no findings. with `--fail-missing` it is a usage error, since a check that cut nothing has not looked.
 
 ### why changed slices are enough, and where that stops
 
@@ -260,25 +260,25 @@ notices go to stderr: `chisel.yaml` differs, the revision the base was resolved 
 text, to stdout, nothing indented and no blank lines. one block per (package, slice, group of arches). a `changed` slice with no finding prints nothing.
 
 ```
-coreutils 9.4-3.1ubuntu1 bins [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
+coreutils_bins 9.4-3.1ubuntu1 [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
 -/usr/bin/basename
 +/usr/libexec/coreutils/
 ~/usr/bin/md5sum: file 0755 -> symlink to ../libexec/coreutils/md5sum
 ~/usr/bin/su: file 4755 -> file 0755
 ~/var/run/: dir -> symlink to /run
-systemd 255.4-1ubuntu8.11 bins [armhf]
+systemd_bins 255.4-1ubuntu8.11 [armhf]
 +/usr/lib/<arch>-linux-<gnu>/cryptsetup/libcryptsetup-token-systemd-tpm2.so
 +/usr/lib/systemd/systemd-measure
-apparmor 4.0.1really4.0.1-0ubuntu0.24.04.4 profiles [amd64, arm64]
+apparmor_profiles 4.0.1really4.0.1-0ubuntu0.24.04.4 [amd64, arm64]
 !/etc/apparmor.d/busybox: no content
-dpkg divert: added
-openssl scripts: removed
-ruby3.3 3.3.8-2ubuntu3.1 libs [i386]: head not available: libfoo
+dpkg_divert: added
+openssl_scripts: removed
+ruby3.3_libs 3.3.8-2ubuntu3.1 [i386]: head not available: libfoo
 bash [riscv64]: not available
 linux-firmware [amd64, arm64]: not available (skipped archives: ubuntu-esm-infra)
 ```
 
-a line is `-<path>` lost, `+<path>` gained, `~<path>: <base> -> <head>` changed or `!<path>: no content` deleted from the base, in that order, each sorted by path, so `grep '^-'` is the list of what went missing. an entry is described as `file <mode>`, `dir`, `symlink to <target>`, or `other`. the header is the sister tools' (`<package> <version> <slice> [arches]`), with both versions as `<base> -> <head>` where they differ on purpose, and a state after a colon for a block with no lines of its own. an `added` or `removed` slice is one line with no version and no arches, since it was not cut, unless `--slice` forced it, and then it is a block like any other. colour as in chisel-coverage, only on a terminal with `NO_COLOR` unset: red `-`, green `+`, yellow `~` and `!`.
+a line is `-<path>` lost, `+<path>` gained, `~<path>: <base> -> <head>` changed or `!<path>: no content` deleted from the base, in that order, each sorted by path, so `grep '^-'` is the list of what went missing. an entry is described as `file <mode>`, `dir`, `symlink to <target>`, or `other`. a slice is named as chisel names it, `<package>_<slice>`, so a name can be pasted into `--slice` or `chisel cut`. the header is `<package>_<slice> <version> [arches]`, with both versions as `<base> -> <head>` where they differ on purpose, and a state after a colon for a block with no lines of its own. an `added` or `removed` slice is one line with no version and no arches, since it was not cut, unless `--slice` forced it, and then it is a block like any other. colour as in chisel-coverage, only on a terminal with `NO_COLOR` unset: red `-`, green `+`, yellow `~` and `!`.
 
 `-v` ends with the summary line of the pool and one more: `12 slices compared, 3 differ, 5 lost, 40 gained, 2 changed`. slices are counted once each whatever the number of arches, one that differs on any arch differs, and entries are counted per arch as the text report shows them, so a directory left out there is not counted.
 
@@ -354,14 +354,14 @@ run | cuts | wall | result
 `-base HEAD` on a clone of ubuntu-24.04 with openssl and libssl3t64 edited in the working tree | 49 | 25s | below
 
 ```
-libssl3t64 3.0.13-0ubuntu3.16 libs [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
+libssl3t64_libs 3.0.13-0ubuntu3.16 [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
 -/usr/lib/<arch>-linux-<gnu>/engines-3/padlock.so
 -/usr/lib/<arch>-linux-<gnu>/libcrypto.so.3
-openssl 3.0.13-0ubuntu3.16 bins [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
+openssl_bins 3.0.13-0ubuntu3.16 [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
 -/usr/bin/c_rehash
 -/usr/lib/<arch>-linux-<gnu>/engines-3/padlock.so
 -/usr/lib/<arch>-linux-<gnu>/libcrypto.so.3
-openssl 3.0.13-0ubuntu3.16 config [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
+openssl_config 3.0.13-0ubuntu3.16 [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
 -/etc/ssl/private/
 ```
 

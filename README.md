@@ -12,16 +12,16 @@ published slices are append-only: a path a slice delivered must stay delivered. 
 
 ```shell
 chisel-diff --arch all --fail-missing HEAD
-libssl3t64 3.0.13-0ubuntu3.16 libs [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
+libssl3t64_libs 3.0.13-0ubuntu3.16 [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
 -/usr/lib/<arch>-linux-<gnu>/engines-3/padlock.so
 -/usr/lib/<arch>-linux-<gnu>/libcrypto.so.3
-openssl 3.0.13-0ubuntu3.16 bins [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
+openssl_bins 3.0.13-0ubuntu3.16 [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
 -/usr/bin/c_rehash
 -/usr/lib/<arch>-linux-<gnu>/engines-3/padlock.so
 -/usr/lib/<arch>-linux-<gnu>/libcrypto.so.3
-openssl 3.0.13-0ubuntu3.16 config [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
+openssl_config 3.0.13-0ubuntu3.16 [amd64, arm64, armhf, i386, ppc64el, riscv64, s390x]
 -/etc/ssl/private/
-openssl scripts: added
+openssl_scripts: added
 ```
 
 a line is `-<path>` for an entry lost, `+<path>` for one gained and `~<path>: <base> -> <head>` for one on both sides that changed kind, file mode or symlink target, so `grep '^-'` is the list of what went missing. architectures that agree are folded into one block. a slice that was added or removed is named and not cut.
