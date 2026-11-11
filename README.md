@@ -48,7 +48,7 @@ a comparison across ubuntu releases, by the version in each side's `chisel.yaml`
 
 without packages, every package whose file differs between the two sides is looked at. a package can be given as the path of its file (`slices/openssl.yaml`), so tab completion works. `--slice` picks slices by name, changed or not, and `--slice=awt:awt-v2` compares slice `awt` at the base with slice `awt-v2` at the head in every package that has both, to see what a replacement slice drops or adds. `chisel-diff --slice=awt:awt-v2 HEAD..HEAD` asks it on one tree, so only the two definitions differ. `--name-status` names the slices and their states and cuts nothing, which takes half a second and no network.
 
-`-T` / `--tree` draws each block's entries as a tree of their paths, with the sign in a column of its own at the start of the line.
+`-T` / `--tree` draws each block's entries as a tree of their paths, each entry's sign glued to its name as the flat report glues it to the path.
 
 `--json` is the same report as one document, with every cut's outcome on both sides and every entry, directories too.
 
