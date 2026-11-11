@@ -127,10 +127,6 @@ func cutItems(c diff.Cut) []fold.Item {
 		if f.Dir && under(c.Findings, f) {
 			continue
 		}
-		path := f.Path
-		if f.Dir {
-			path += "/"
-		}
 		out = append(out, item(f, c.Arch))
 	}
 	return out
