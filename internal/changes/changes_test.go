@@ -3,6 +3,7 @@ package changes
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -154,6 +155,54 @@ func TestPicks(t *testing.T) {
 	res, err = Compare(base, head, []string{"bash", "dash"}, []string{"all"})
 	assert.NoError(t, err)
 	assert.Equal(t, states(res), "bash_bins:changed+ bash_config:same+ bash_copyright:same+ bash_scripts:added+ dash_bins:same+")
+}
+
+func TestABareNamePicksInEveryPackage(t *testing.T) {
+	files := map[string]string{
+		"slices/bash.yaml": bash,
+		"slices/dash.yaml": "package: dash\nslices:\n  bins:\n    contents:\n      /usr/bin/dash:\n",
+	}
+	base, head := release(t, files), release(t, files)
+	res, err := Compare(base, head, []string{"bash", "dash"}, []string{"bins"})
+	assert.NoError(t, err)
+	assert.Equal(t, ids(res.Reported()), "bash_bins dash_bins")
+}
+
+func TestAliasesAndMergeKeys(t *testing.T) {
+	// The slices are an alias for a mapping kept elsewhere, and one of them
+	// takes its contents through a merge key. Chisel reads through both.
+	file := func(path string) string {
+		return `package: demo
+templates:
+  common: &common
+    contents:
+      ` + path + `:
+  all: &all
+    bins:
+      <<: *common
+      essential:
+        demo_libs:
+    libs:
+      contents:
+        /usr/lib/demo.so:
+slices: *all
+`
+	}
+	base := release(t, map[string]string{"slices/demo.yaml": file("/usr/bin/demo")})
+	head := release(t, map[string]string{"slices/demo.yaml": file("/usr/bin/other")})
+	res, err := Compare(base, head, nil, nil)
+	assert.NoError(t, err)
+	// templates is a key of the file, so it changes every slice. What
+	// matters is that the slices are seen at all, by their names.
+	assert.Equal(t, states(res), "demo_bins:changed demo_libs:changed")
+	assert.EqualArrays(t, base.files["demo"].paths["bins"], []string{"/usr/bin/demo"})
+
+	// A merge key among the slices themselves is no slice of its own.
+	merged := "package: demo\nmore: &more\n  extra:\n    contents:\n      /x:\nslices:\n  <<: *more\n  bins:\n    contents:\n      /usr/bin/demo:\n"
+	r := release(t, map[string]string{"slices/demo.yaml": merged})
+	names := append([]string{}, r.files["demo"].names...)
+	sort.Strings(names)
+	assert.EqualArrays(t, names, []string{"bins", "extra"})
 }
 
 func TestWhatChangesEverySlice(t *testing.T) {

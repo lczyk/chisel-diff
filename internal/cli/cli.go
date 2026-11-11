@@ -183,11 +183,7 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 	if len(f.Verbose) >= 1 {
 		opts.Verbose = os.Stderr
 	}
-	archiveDiffers := map[string]bool{}
-	for _, p := range res.Packages {
-		archiveDiffers[p.Name] = p.ArchiveDiffers
-	}
-	result, err := diff.Run(ctx, opts, res, archiveDiffers)
+	result, err := diff.Run(ctx, opts, res, res.ArchiveDiffers)
 	if err != nil {
 		return 0, err
 	}

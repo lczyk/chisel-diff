@@ -33,6 +33,9 @@ slice="$1"
 pkg="${slice%%_*}"
 printf '%s %s %s\n' "$arch" "$slice" "$(basename "$release")" >> "$FAKE_LOG"
 if [ -f "$release/fake/na/$arch/$pkg" ]; then
+  if [ -s "$release/fake/na/$arch/$pkg" ]; then
+    echo "Archive \"$(cat "$release/fake/na/$arch/$pkg")\" ignored: credentials not found" >&2
+  fi
   echo "error: cannot find package \"$pkg\" in archive(s)" >&2; exit 1
 fi
 if [ -f "$release/fake/na-dep/$slice" ]; then
@@ -112,11 +115,7 @@ func (f *fixture) run(arches []string, named, picks []string, opts Options) *Res
 	plan, err := changes.Compare(b, h, named, picks)
 	assert.NoError(f.t, err)
 	opts.Base, opts.Head, opts.Arches, opts.Runner = f.base, f.head, arches, f.runner
-	differs := map[string]bool{}
-	for _, p := range plan.Packages {
-		differs[p.Name] = p.ArchiveDiffers
-	}
-	res, err := Run(context.Background(), opts, plan, differs)
+	res, err := Run(context.Background(), opts, plan, plan.ArchiveDiffers)
 	assert.NoError(f.t, err)
 	return res
 }
@@ -264,6 +263,27 @@ func TestOutcomes(t *testing.T) {
 	assert.Equal(t, dep.Head.Missing, "libfoo")
 	assert.EqualArrays(t, dep.Head.Ignored, []string{"esm-apps"})
 	assert.That(t, res.Missing())
+}
+
+func TestSkippedSlicesSayWhatTheirLeadFound(t *testing.T) {
+	f := setup(t)
+	f.pkg(f.base, "pro", "one", "two")
+	f.pkg(f.head, "pro", "one", "two")
+	// In no archive chisel could read: one was skipped for want of
+	// credentials.
+	f.both("fake/na/amd64/pro", "esm-apps")
+	res := f.run([]string{"amd64"}, nil, nil, Options{OneArchive: true})
+	assert.Len(t, res.Errors, 0)
+	for _, id := range []string{"pro_one", "pro_two"} {
+		c := slice(t, res, id).Cuts[0]
+		assert.Equal(t, c.Outcome, Unavailable, id)
+		for _, side := range []Side{c.Base, c.Head} {
+			assert.Equal(t, side.Missing, "pro", id)
+			assert.EqualArrays(t, side.Ignored, []string{"esm-apps"})
+		}
+	}
+	assert.Equal(t, slice(t, res, "pro_two").Cuts[0].Head.Status, Skipped)
+	assert.That(t, !res.Missing())
 }
 
 func TestAFailedCutIsAnError(t *testing.T) {

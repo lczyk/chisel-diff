@@ -185,6 +185,7 @@ func Run(ctx context.Context, opts Options, plan *changes.Result, archiveDiffers
 	}
 	p.Summary()
 
+	r.inherit()
 	res := &Result{Slices: r.slices}
 	for si := range r.slices {
 		s := &r.slices[si]
@@ -281,6 +282,35 @@ func (r *run) done(c pool.Cut) bool {
 		cell.Head = s
 	}
 	return !errors.Is(c.Err, cut.ErrNotAvailable)
+}
+
+// inherit gives the units that were never cut what their package's lead
+// found: the package is missing, and which archives chisel skipped on the
+// way to saying so.
+func (r *run) inherit() {
+	for ai := range r.opts.Arches {
+		for side := range sideNames {
+			lead := map[string]*Side{}
+			for si := range r.slices {
+				s := &r.slices[si]
+				if (side == base && !s.CutBase()) || (side == head && !s.CutHead()) {
+					continue
+				}
+				cell := &s.Cuts[ai].Base
+				if side == head {
+					cell = &s.Cuts[ai].Head
+				}
+				first, ok := lead[s.Package]
+				if !ok {
+					lead[s.Package] = cell
+					continue
+				}
+				if cell.Status == None && first.Status == NotAvailable && first.Missing == s.Package {
+					cell.Status, cell.Missing, cell.Ignored = Skipped, s.Package, first.Ignored
+				}
+			}
+		}
+	}
 }
 
 // settle works out what the two cuts of a slice on an architecture add up

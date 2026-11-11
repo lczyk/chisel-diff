@@ -115,11 +115,25 @@ func parse(raw []byte) (*file, error) {
 			f.top[key] = v
 			continue
 		}
-		if value.Kind != yaml.MappingNode {
-			continue
+		// Decoded as yaml decodes it for chisel, so that an alias for the
+		// whole mapping and a merge key inside it are what they stand for.
+		var nodes map[string]yaml.Node
+		if err := value.Decode(&nodes); err != nil {
+			return nil, fmt.Errorf("slices: %w", err)
 		}
-		for j := 0; j+1 < len(value.Content); j += 2 {
-			name, node := value.Content[j].Value, value.Content[j+1]
+		names := make([]string, 0, len(nodes))
+		for name := range nodes {
+			names = append(names, name)
+		}
+		sort.Slice(names, func(i, j int) bool {
+			a, b := nodes[names[i]], nodes[names[j]]
+			if a.Line != b.Line {
+				return a.Line < b.Line
+			}
+			return names[i] < names[j]
+		})
+		for _, name := range names {
+			node := nodes[name]
 			var def any
 			if err := node.Decode(&def); err != nil {
 				return nil, fmt.Errorf("slice %s: %w", name, err)
@@ -192,6 +206,9 @@ type Result struct {
 	// Prefer are the slices outside of what is reported that are cut on
 	// both sides when anything else is, see Compare.
 	Prefer []Slice
+	// ArchiveDiffers holds every package of the release whose file names
+	// another archive on the two sides, considered or not.
+	ArchiveDiffers map[string]bool
 }
 
 // Reported are the slices a report names: the picked ones when --slice was
@@ -226,7 +243,12 @@ func (r *Result) picked() bool {
 // picks the slices of that name in the packages considered, "all" every
 // slice of them.
 func Compare(base, head *Release, named, picks []string) (*Result, error) {
-	res := &Result{ChiselYAMLDiffers: !bytes.Equal(base.chiselYAML, head.chiselYAML)}
+	res := &Result{ChiselYAMLDiffers: !bytes.Equal(base.chiselYAML, head.chiselYAML), ArchiveDiffers: map[string]bool{}}
+	for pkg, b := range base.files {
+		if h := head.files[pkg]; h != nil && !reflect.DeepEqual(b.top["archive"], h.top["archive"]) {
+			res.ArchiveDiffers[pkg] = true
+		}
+	}
 	all := slices.Contains(picks, "all")
 	bare := map[string]bool{} // slice names picked in every package
 	full := map[string]bool{} // <package>_<slice> picks
@@ -257,6 +279,7 @@ func Compare(base, head *Release, named, picks []string) (*Result, error) {
 	}
 
 	seen := map[string]bool{}
+	matched := map[string]bool{} // the picks that named a slice
 	for _, name := range considered {
 		if seen[name] {
 			continue
@@ -303,8 +326,7 @@ func Compare(base, head *Release, named, picks []string) (*Result, error) {
 			}
 			if all || bare[n] || full[s.ID()] {
 				s.Picked = true
-				delete(bare, n)
-				delete(full, s.ID())
+				matched[n], matched[s.ID()] = true, true
 			}
 			p.Slices = append(p.Slices, s)
 		}
@@ -312,10 +334,14 @@ func Compare(base, head *Release, named, picks []string) (*Result, error) {
 	}
 	var unknown []string
 	for name := range bare {
-		unknown = append(unknown, name)
+		if !matched[name] {
+			unknown = append(unknown, name)
+		}
 	}
 	for id := range full {
-		unknown = append(unknown, id)
+		if !matched[id] {
+			unknown = append(unknown, id)
+		}
 	}
 	if len(unknown) > 0 {
 		sort.Strings(unknown)

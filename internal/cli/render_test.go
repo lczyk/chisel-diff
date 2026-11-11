@@ -70,6 +70,17 @@ ruby libs [arm64]: base not available
 ruby libs [s390x]: error
 `)
 
+	// A package that is missing says so once, with the archives skipped,
+	// though only its lead slice was told of them first hand.
+	pro := diff.Side{Status: diff.NotAvailable, Missing: "pro", Ignored: []string{"esm-apps"}}
+	skipped := diff.Side{Status: diff.Skipped, Missing: "pro", Ignored: []string{"esm-apps"}}
+	out.Reset()
+	renderText(&out, &diff.Result{Slices: []diff.Slice{
+		sl("pro", "one", changes.Changed, diff.Cut{Arch: "amd64", Outcome: diff.Unavailable, Base: pro, Head: pro}),
+		sl("pro", "two", changes.Changed, diff.Cut{Arch: "amd64", Outcome: diff.Unavailable, Base: skipped, Head: skipped}),
+	}}, true)
+	assert.Equal(t, out.String(), "pro [amd64]: not available (skipped archives: esm-apps)\n")
+
 	// Ungrouped: a block per architecture with its real paths.
 	out.Reset()
 	renderText(&out, &diff.Result{Slices: res.Slices[:1]}, false)

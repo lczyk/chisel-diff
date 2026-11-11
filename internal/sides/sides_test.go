@@ -274,6 +274,44 @@ func TestSymlinkInARevisionIsRefused(t *testing.T) {
 	assert.Error(t, err, "is a symlink or a submodule")
 }
 
+func TestSymlinkedSliceDirInARevisionIsRefused(t *testing.T) {
+	r := newRepo(t)
+	r.write("chisel.yaml", "format: v1\n")
+	r.write("real/bash.yaml", "bash\n")
+	assert.NoError(t, os.Symlink("real", filepath.Join(r.dir, "slices")))
+	r.commit("one")
+	// Not an empty release: the link is what the revision holds.
+	_, err := Resolve(context.Background(), r.spec("HEAD.."))
+	assert.Error(t, err, "slices in")
+	assert.Error(t, err, "is a symlink or a submodule")
+}
+
+func TestPathsWithSpacesAndColons(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	for _, who := range []string{"AUTHOR", "COMMITTER"} {
+		t.Setenv("GIT_"+who+"_NAME", "t")
+		t.Setenv("GIT_"+who+"_EMAIL", "t@example.invalid")
+	}
+	// The checkout sits under a name with a colon, which separates the
+	// entries of git's alternates, and the release in a subdirectory whose
+	// name starts and ends with a space.
+	r := &repo{t: t, dir: filepath.Join(t.TempDir(), "work:next")}
+	assert.NoError(t, os.MkdirAll(r.dir, 0755))
+	r.git("init", "-q", "-b", "main")
+	r.write(" rel /chisel.yaml", "format: v1\n")
+	r.write(" rel /slices/bash.yaml", "bash one\n")
+	r.commit("one")
+	r.write(" rel /slices/bash.yaml", "bash staged\n")
+	r.git("add", "-A")
+	spec := Spec{Release: filepath.Join(r.dir, " rel "), Revisions: "HEAD", Cached: true, Git: "git"}
+	s, err := Resolve(context.Background(), spec)
+	assert.NoError(t, err)
+	defer s.Remove()
+	assert.Equal(t, read(t, s.Base.Dir, "slices/bash.yaml"), "bash one\n")
+	assert.Equal(t, read(t, s.Head.Dir, "slices/bash.yaml"), "bash staged\n")
+}
+
 func TestWorkingTreeAsChiselReadsIt(t *testing.T) {
 	r := newRepo(t)
 	r.write("chisel.yaml", "format: v1\n")

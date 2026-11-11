@@ -56,7 +56,7 @@ func renderText(w io.Writer, res *diff.Result, group bool) {
 		for _, n := range order {
 			// A package that is not there says so once, not once a slice.
 			if own, ok := strings.CutPrefix(n, ownAbsence); ok {
-				key := s.Package + " " + strings.Join(notes[n], ",") + own
+				key := s.Package + " " + strings.Join(notes[n], ",")
 				if !absent[key] {
 					absent[key] = true
 					fmt.Fprintf(w, "%s [%s]: not available%s\n", s.Package, strings.Join(notes[n], ", "), own)

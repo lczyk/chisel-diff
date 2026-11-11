@@ -106,7 +106,7 @@ func (s *Sides) dirs(spec Spec) error {
 
 func (s *Sides) revisions(ctx context.Context, spec Spec) error {
 	g := &git{ctx: ctx, bin: spec.Git, dir: spec.Release}
-	prefix, err := g.line("rev-parse", "--show-prefix")
+	prefix, err := g.path("rev-parse", "--show-prefix")
 	if err != nil {
 		return fmt.Errorf("%s is not in a git checkout: %w", spec.Release, err)
 	}
@@ -252,6 +252,13 @@ func (g *git) line(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// path is a path git prints: only the newline that ends it goes, since a
+// name may start or end in a space.
+func (g *git) path(args ...string) (string, error) {
+	out, err := g.out(args...)
+	return strings.TrimSuffix(string(out), "\n"), err
+}
+
 func (g *git) lines(args ...string) ([]string, error) {
 	out, err := g.out(args...)
 	return strings.Fields(string(out)), err
@@ -281,11 +288,16 @@ func (g *git) tree(treeish, prefix, dst string, env []string) error {
 	for _, entry := range strings.Split(strings.TrimSuffix(string(listing), "\x00"), "\x00") {
 		meta, path, ok := strings.Cut(entry, "\t")
 		fields := strings.Fields(meta)
-		if !ok || len(fields) != 3 || !wanted(path) {
+		if !ok || len(fields) != 3 {
 			continue
 		}
-		if fields[0] == "120000" || fields[1] != "blob" {
+		// Before anything is left out for not being yaml: a slice dir that
+		// is itself a link would else read as an empty one.
+		if (inRelease(path) || path == "chisel.yaml") && (fields[0] == "120000" || fields[1] != "blob") {
 			return fmt.Errorf("%s in %s is a symlink or a submodule, which a release cannot be read through", path, short(treeish))
+		}
+		if !wanted(path) {
+			continue
 		}
 		files = append(files, file{fields[2], path})
 	}
@@ -306,11 +318,19 @@ func (g *git) tree(treeish, prefix, dst string, env []string) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	reaped := false
+	defer func() {
+		// An early return leaves git mid-answer: stop it and collect it.
+		if !reaped {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	}()
 	r := bufio.NewReader(stdout)
 	for _, f := range files {
 		header, err := r.ReadString('\n')
 		if err != nil {
-			return fmt.Errorf("git cat-file: %s: %w", strings.TrimSpace(stderr.String()), err)
+			return fmt.Errorf("git cat-file: %s: %w", f.path, err)
 		}
 		fields := strings.Fields(header)
 		if len(fields) != 3 || fields[1] != "blob" {
@@ -330,6 +350,7 @@ func (g *git) tree(treeish, prefix, dst string, env []string) error {
 			return err
 		}
 	}
+	reaped = true
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("git cat-file: %s: %w", strings.TrimSpace(stderr.String()), err)
 	}
@@ -346,7 +367,7 @@ func (g *git) index(prefix, dst string) error {
 	var paths [2]string
 	for i, name := range []string{"index", "objects"} {
 		var err error
-		if paths[i], err = g.line("rev-parse", "--path-format=absolute", "--git-path", name); err != nil {
+		if paths[i], err = g.path("rev-parse", "--path-format=absolute", "--git-path", name); err != nil {
 			return err
 		}
 	}
@@ -368,13 +389,33 @@ func (g *git) index(prefix, dst string) error {
 			return err
 		}
 	}
-	env := []string{"GIT_INDEX_FILE=" + index, "GIT_OBJECT_DIRECTORY=" + objects, "GIT_ALTERNATE_OBJECT_DIRECTORIES=" + paths[1]}
+	env := []string{"GIT_INDEX_FILE=" + index, "GIT_OBJECT_DIRECTORY=" + objects, "GIT_ALTERNATE_OBJECT_DIRECTORIES=" + alternate(paths[1])}
 	staged := &git{ctx: g.ctx, bin: g.bin, dir: g.dir, env: env}
 	tree, err := staged.line("write-tree")
 	if err != nil {
 		return fmt.Errorf("the index cannot be written as a tree: %w", err)
 	}
 	return g.tree(tree, prefix, dst, env)
+}
+
+// alternate is a path as one entry of GIT_ALTERNATE_OBJECT_DIRECTORIES,
+// whose entries a colon separates: git takes one in double quotes with
+// backslash escapes, which a path with a colon in it needs.
+func alternate(path string) string {
+	if !strings.ContainsAny(path, ":\"\\") {
+		return path
+	}
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(path) + `"`
+}
+
+// inRelease reports whether a path is one of the slice dirs or under one.
+func inRelease(path string) bool {
+	for _, dir := range sliceDirs {
+		if path == dir || strings.HasPrefix(path, dir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // wanted reports whether chisel reads a path of a release.
