@@ -49,6 +49,7 @@ const (
 // Side is one side's cut of a slice on an architecture.
 type Side struct {
 	Status  Status
+	Pruned  []string // the contents entries deleted before the base would cut
 	Entries int      // in the rootfs
 	Version string   // of the slice's own package
 	Missing string   // the package chisel did not find
@@ -75,6 +76,9 @@ type Change string
 const (
 	Lost   Change = "lost"
 	Gained Change = "gained"
+	// NoContent is an entry deleted from the base because the archive no
+	// longer has what it names. It is neither lost nor gained.
+	NoContent Change = "no-content"
 )
 
 // Finding is one entry that is on one side only.
@@ -181,6 +185,9 @@ func Run(ctx context.Context, opts Options, plan *changes.Result, archiveDiffers
 		return nil, err
 	}
 	if err := p.Pass(r.groups(1, len(opts.Arches)), r.done); err != nil {
+		return nil, err
+	}
+	if err := r.prune(p); err != nil {
 		return nil, err
 	}
 	p.Summary()
@@ -352,6 +359,9 @@ func (r *run) settle(s *Slice, c *Cut) {
 	default:
 		c.Outcome = Compared
 		c.Findings = compare(c.Base.entries, c.Head.entries)
+		for _, path := range c.Base.Pruned {
+			c.Findings = append(c.Findings, Finding{Path: strings.TrimSuffix(path, "/"), Dir: strings.HasSuffix(path, "/"), Change: NoContent})
+		}
 	}
 }
 

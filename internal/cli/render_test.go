@@ -121,13 +121,13 @@ func TestRenderJSON(t *testing.T) {
 	assert.Equal(t, out.String(), `{"run":{"chisel":"v1.2.0","release":".","chisel-yaml-differs":false,"revisions":"main","merge-base":false,`+
 		`"base":{"kind":"rev","ref":"main","tip":"main","rev":"main"},"head":{"kind":"worktree","ref":null,"tip":null,"rev":null}},`+
 		`"packages":[{"name":"bash","file":"modified","slices":[{"name":"bins","state":"changed","forced":false,"cuts":[`+
-		`{"arch":"amd64","outcome":"compared","base":{"status":"cut","entries":0,"version":"5.2-1","missing":null,"skipped-archives":[],"error":null},"head":{"status":"cut","entries":0,"version":"5.2-1","missing":null,"skipped-archives":[],"error":null}},`+
-		`{"arch":"arm64","outcome":"compared","base":{"status":"cut","entries":0,"version":"5.2-1","missing":null,"skipped-archives":[],"error":null},"head":{"status":"cut","entries":0,"version":"5.2-1","missing":null,"skipped-archives":[],"error":null}},`+
-		`{"arch":"riscv64","outcome":"head not available","base":{"status":"cut","entries":3,"version":"5.2-1","missing":null,"skipped-archives":[],"error":null},"head":{"status":"not-available","entries":0,"version":null,"missing":"libfoo","skipped-archives":["esm-apps"],"error":null}}],`+
+		`{"arch":"amd64","outcome":"compared","base":{"status":"cut","entries":0,"version":"5.2-1","missing":null,"pruned":[],"skipped-archives":[],"error":null},"head":{"status":"cut","entries":0,"version":"5.2-1","missing":null,"pruned":[],"skipped-archives":[],"error":null}},`+
+		`{"arch":"arm64","outcome":"compared","base":{"status":"cut","entries":0,"version":"5.2-1","missing":null,"pruned":[],"skipped-archives":[],"error":null},"head":{"status":"cut","entries":0,"version":"5.2-1","missing":null,"pruned":[],"skipped-archives":[],"error":null}},`+
+		`{"arch":"riscv64","outcome":"head not available","base":{"status":"cut","entries":3,"version":"5.2-1","missing":null,"pruned":[],"skipped-archives":[],"error":null},"head":{"status":"not-available","entries":0,"version":null,"missing":"libfoo","pruned":[],"skipped-archives":["esm-apps"],"error":null}}],`+
 		// Every entry is here, the directory too, and a path the
 		// architectures spell differently has each one's own.
 		`"findings":[{"path":"/etc/bash/","change":"lost","arches":["amd64","arm64"]},{"path":"/etc/bash/rc","change":"lost","arches":["amd64","arm64"]},`+
 		`{"path":"/usr/lib/<arch>-linux-<gnu>/b.so","change":"lost","arches":["amd64","arm64"],"raw":{"amd64":"/usr/lib/x86_64-linux-gnu/b.so","arm64":"/usr/lib/aarch64-linux-gnu/b.so"}}]},`+
 		`{"name":"scripts","state":"added","forced":false,"cuts":[],"findings":[]}]},`+
-		`{"name":"s","file":"same","slices":[{"name":"bins","state":"same","forced":true,"cuts":[{"arch":"amd64","outcome":"compared","base":{"status":"cut","entries":0,"version":"1.0","missing":null,"skipped-archives":[],"error":null},"head":{"status":"cut","entries":0,"version":"1.0","missing":null,"skipped-archives":[],"error":null}}],"findings":[]}]}]}`+"\n")
+		`{"name":"s","file":"same","slices":[{"name":"bins","state":"same","forced":true,"cuts":[{"arch":"amd64","outcome":"compared","base":{"status":"cut","entries":0,"version":"1.0","missing":null,"pruned":[],"skipped-archives":[],"error":null},"head":{"status":"cut","entries":0,"version":"1.0","missing":null,"pruned":[],"skipped-archives":[],"error":null}}],"findings":[]}]}]}`+"\n")
 }

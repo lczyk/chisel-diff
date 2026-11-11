@@ -65,6 +65,7 @@ type jsonCutSide struct {
 	Entries  int         `json:"entries"`
 	Version  *string     `json:"version"`
 	Missing  *string     `json:"missing"`
+	Pruned   []string    `json:"pruned"`
 	Archives []string    `json:"skipped-archives"`
 	Error    *string     `json:"error"`
 }
@@ -146,6 +147,10 @@ func cutSide(s diff.Side) jsonCutSide {
 	out := jsonCutSide{Status: s.Status, Entries: s.Entries, Version: ptr(s.Version), Missing: ptr(s.Missing), Archives: s.Ignored}
 	if out.Archives == nil {
 		out.Archives = []string{}
+	}
+	out.Pruned = s.Pruned
+	if out.Pruned == nil {
+		out.Pruned = []string{}
 	}
 	if s.Err != nil {
 		out.Error = ptr(s.Err.Error())

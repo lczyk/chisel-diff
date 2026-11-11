@@ -16,6 +16,9 @@ import (
 // fakeChisel cuts from what the release dir itself holds under fake/: the
 // trees fake/tree/<slice>/all and fake/tree/<slice>/<arch> are copied into
 // --root. A package with fake/na/<arch>/<package> is in no archive, a slice
+// with fake/nocontent/<slice> names that path as one with no content for as
+// long as the package's file lists it (fake/nocontent-always/<slice>
+// whatever it lists), a slice
 // with fake/na-dep/<slice> reaches a package that is in none (the file
 // names it), a slice with fake/fail/<slice> fails. fake/version/<package>
 // is the version of the deb fetched, 1.0 without. Every cut appends
@@ -43,6 +46,12 @@ if [ -f "$release/fake/na-dep/$slice" ]; then
   echo "error: cannot find package \"$(cat "$release/fake/na-dep/$slice")\" in archive(s)" >&2; exit 1
 fi
 if [ -f "$release/fake/fail/$slice" ]; then echo "boom" >&2; exit 1; fi
+if [ -f "$release/fake/nocontent-always/$slice" ]; then
+  echo "error: cannot extract from package \"$pkg\": no content at $(cat "$release/fake/nocontent-always/$slice")" >&2; exit 1
+fi
+if [ -f "$release/fake/nocontent/$slice" ] && grep -q "^ *$(cat "$release/fake/nocontent/$slice"):" "$release/slices/$pkg.yaml"; then
+  echo "error: cannot extract from package \"$pkg\": no content at $(cat "$release/fake/nocontent/$slice")" >&2; exit 1
+fi
 v=1.0
 [ -f "$release/fake/version/$pkg" ] && v="$(cat "$release/fake/version/$pkg")"
 echo "Fetching pool/main/x/$pkg/${pkg}_${v}_$arch.deb..." >&2
@@ -133,10 +142,7 @@ func (f *fixture) cuts() []string {
 func findings(c Cut) string {
 	var out []string
 	for _, fd := range c.Findings {
-		sign := "-"
-		if fd.Change == Gained {
-			sign = "+"
-		}
+		sign := map[Change]string{Lost: "-", Gained: "+", NoContent: "!"}[fd.Change]
 		path := fd.Path
 		if fd.Dir {
 			path += "/"
@@ -302,6 +308,30 @@ func TestAFailedCutIsAnError(t *testing.T) {
 	assert.Len(t, bins.Findings, 0)
 	// The package's other slices are still compared.
 	assert.Equal(t, slice(t, res, "bash_config").Cuts[0].Outcome, Compared)
+	assert.That(t, !res.Missing())
+}
+
+func TestABaseThatCannotBePrunedIsAnError(t *testing.T) {
+	f := setup(t)
+	f.pkg(f.base, "bash", "bins")
+	f.pkg(f.head, "bash", "bins")
+	// Chisel names a path no entry has as its source.
+	f.write(f.base, "fake/nocontent-always/bash_bins", "/elsewhere")
+	res := f.run([]string{"amd64"}, nil, nil, Options{OneArchive: true})
+	assert.Len(t, res.Errors, 1)
+	assert.Error(t, res.Errors[0], "no entry of bash has that as its source")
+	assert.Equal(t, res.Slices[0].Cuts[0].Outcome, Error)
+
+	// One it can prune: the base is cut again from a release of its own,
+	// and the entry deleted is neither lost nor gained.
+	assert.NoError(t, os.Remove(filepath.Join(f.base, "fake", "nocontent-always", "bash_bins")))
+	f.write(f.base, "fake/nocontent/bash_bins", "/base")
+	res = f.run([]string{"amd64"}, nil, nil, Options{OneArchive: true})
+	assert.Len(t, res.Errors, 0)
+	c := res.Slices[0].Cuts[0]
+	assert.Equal(t, c.Outcome, Compared)
+	assert.EqualArrays(t, c.Base.Pruned, []string{"/base"})
+	assert.Equal(t, findings(c), "!/base")
 	assert.That(t, !res.Missing())
 }
 

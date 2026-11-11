@@ -16,7 +16,8 @@ import (
 // header "<package> <version> <slice> [arches]" and under it "-<path>" for
 // an entry lost and "+<path>" for one gained, so grep '^-' is the list of
 // what went missing. A slice with nothing to show under a header is one
-// line, with what is to be said of it after a colon. With group unset every
+// line, with what is to be said of it after a colon. "!<path>: no content"
+// is an entry deleted from the base because the archive no longer has it. With group unset every
 // architecture is a block of its own with its real paths.
 func renderText(w io.Writer, res *diff.Result, group bool) {
 	absent := map[string]bool{} // packages whose own absence was told
@@ -158,17 +159,21 @@ func groups(arches []string, items [][]fold.Item, group bool) []fold.Group {
 // lines are a group's entries as the report prints them: the lost ones,
 // then the gained ones, each sorted by path.
 func lines(g fold.Group) []string {
-	var lost, gained []string
+	var lost, gained, pruned []string
 	for _, e := range g.Entries {
-		if e.Tag == string(diff.Lost) {
+		switch diff.Change(e.Tag) {
+		case diff.Lost:
 			lost = append(lost, "-"+e.Shown())
-		} else {
+		case diff.Gained:
 			gained = append(gained, "+"+e.Shown())
+		default:
+			pruned = append(pruned, "!"+e.Shown()+": no content")
 		}
 	}
 	sort.Strings(lost)
 	sort.Strings(gained)
-	return append(lost, gained...)
+	sort.Strings(pruned)
+	return append(append(lost, gained...), pruned...)
 }
 
 // summary is the line -v ends with: slices are counted once each whatever
@@ -183,12 +188,15 @@ func summary(res *diff.Result) string {
 				was = true
 			}
 			for _, f := range c.Findings {
-				differs = true
-				if f.Change == diff.Lost {
+				switch f.Change {
+				case diff.Lost:
 					lost++
-				} else {
+				case diff.Gained:
 					gained++
+				default:
+					continue
 				}
+				differs = true
 			}
 		}
 		if was {

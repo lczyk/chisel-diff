@@ -1,7 +1,6 @@
 package diff
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -233,19 +232,23 @@ func TestRealChisel(t *testing.T) {
 		assert.That(t, res.Missing())
 	})
 
-	t.Run("a base that names a path its package lacks is an error", func(t *testing.T) {
-		// One path, then two: chisel words them differently.
-		for _, extra := range []string{"\t\t\t/nope:\n", "\t\t\t/nope:\n\t\t\t/nada/**:\n"} {
+	t.Run("a base the archive moved under is pruned and compared", func(t *testing.T) {
+		// One path, then two: chisel words them differently. The PR drops
+		// them, and with them, unseen, /usr/bin/tool.
+		for _, extra := range []string{"\t\t\t/nope:\n", "\t\t\t/nope:\n\t\t\t/nada/**:\n\t\t\t/usr/bin/renamed: {copy: /gone}\n"} {
 			f.reset()
-			f.sides("demo", demoBins+extra, demoBins)
-			_, res := compare("demo_bins")
-			assert.Len(t, res.Errors, 1)
-			var ce *cut.Error
-			assert.That(t, errors.As(res.Errors[0], &ce), "%v", res.Errors[0])
-			assert.ErrorIs(t, res.Errors[0], cut.ErrNoContent)
-			assert.Equal(t, ce.Package, "demo")
-			assert.That(t, len(ce.Paths) == strings.Count(extra, "\n"), "%v", ce.Paths)
-			assert.Equal(t, res.Slices[0].Cuts[0].Outcome, Error)
+			f.sides("demo", demoBins+extra, "slices:\n\tbins:\n\t\tcontents:\n\t\t\t/usr/bin/demo:\n")
+			got, res := compare("demo_bins")
+			clean(res)
+			c := res.Slices[0].Cuts[0]
+			assert.Equal(t, c.Outcome, Compared)
+			want := "-/usr/bin/tool !/nope"
+			if strings.Count(extra, "\n") > 1 {
+				want = "-/usr/bin/tool !/nope !/nada/** !/usr/bin/renamed"
+			}
+			assert.Equal(t, got, want)
+			assert.That(t, len(c.Base.Pruned) == strings.Count(extra, "\n"), "%v", c.Base.Pruned)
+			assert.That(t, res.Missing())
 		}
 	})
 
