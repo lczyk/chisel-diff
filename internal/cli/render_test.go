@@ -342,19 +342,19 @@ func TestRenderOrigins(t *testing.T) {
 	var out bytes.Buffer
 	renderText(&out, res, true, false, "packages", style{})
 	assert.Equal(t, out.String(), `x_s 1 [amd64]
--/etc/shared (a, b)
--/usr/lib/libz.so.1 (zlib1g)
+-/etc/shared a, b
+-/usr/lib/libz.so.1 zlib1g
 -/var/cache/
-+/usr/bin/new (x)
-~/usr/bin/sh: file 0755 -> file 0700 (x -> dash)
-~/usr/bin/su: file 0755 -> file 0700 (x)
++/usr/bin/new x
+~/usr/bin/sh: file 0755 -> file 0700 x -> dash
+~/usr/bin/su: file 0755 -> file 0700 x
 `)
 	out.Reset()
 	renderText(&out, res, true, false, "slices", style{})
-	assert.ContainsString(t, out.String(), "-/etc/shared (b_conf, a_conf, a_more)\n")
+	assert.ContainsString(t, out.String(), "-/etc/shared b_conf, a_conf, a_more\n")
 	out.Reset()
 	renderText(&out, res, true, true, "packages", style{})
-	assert.ContainsString(t, out.String(), boxes("|  T- ~sh: file 0755 -> file 0700 (x -> dash)\n"))
+	assert.ContainsString(t, out.String(), boxes("|  T- ~sh: file 0755 -> file 0700 x -> dash\n"))
 
 	// Arches that came by a path from different packages do not fold.
 	res = &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed,
@@ -363,7 +363,7 @@ func TestRenderOrigins(t *testing.T) {
 		compared("s390x", "1", from(lost("/usr/lib/s390x-linux-gnu/a"), "p_libs", "")))}}
 	out.Reset()
 	renderText(&out, res, true, false, "packages", style{})
-	assert.Equal(t, out.String(), "x_s 1 [amd64, s390x]\n-/usr/lib/<arch>-linux-<gnu>/a (p)\nx_s 1 [arm64]\n-/usr/lib/aarch64-linux-gnu/a (q)\n")
+	assert.Equal(t, out.String(), "x_s 1 [amd64, s390x]\n-/usr/lib/<arch>-linux-<gnu>/a p\nx_s 1 [arm64]\n-/usr/lib/aarch64-linux-gnu/a q\n")
 	// Without, they do.
 	out.Reset()
 	renderText(&out, res, true, false, "", style{})
@@ -372,10 +372,10 @@ func TestRenderOrigins(t *testing.T) {
 	// What an entry comes from is not in its colour, flat or in the tree.
 	out.Reset()
 	renderText(&out, res, true, false, "packages", colours)
-	assert.ContainsString(t, out.String(), "\x1b[31m-/usr/lib/aarch64-linux-gnu/a\x1b[0m (q)\n")
+	assert.ContainsString(t, out.String(), "\x1b[31m-/usr/lib/aarch64-linux-gnu/a\x1b[0m q\n")
 	out.Reset()
 	renderText(&out, res, true, true, "packages", colours)
-	assert.ContainsString(t, out.String(), "\x1b[31m-/usr/lib/aarch64-linux-gnu/a\x1b[0m (q)\n")
+	assert.ContainsString(t, out.String(), "\x1b[31m-/usr/lib/aarch64-linux-gnu/a\x1b[0m q\n")
 
 	out.Reset()
 	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, res.Slices, true, true))

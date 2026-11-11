@@ -24,7 +24,7 @@ import (
 // <head>" is an entry on both sides that changed, "!<path>: no content"
 // is an entry deleted from the base because the archive no longer has it. With group unset every
 // architecture is a block of its own with its real paths. With from set,
-// "packages" or "slices", every entry ends in what it comes from, in brackets,
+// "packages" or "slices", every entry ends in what it comes from, after a space and not coloured,
 // as origin says.
 func renderText(w io.Writer, res *diff.Result, group, tree bool, from string, st style) {
 	absent := map[string]bool{} // packages whose own absence was told
@@ -240,12 +240,12 @@ func (e rline) tail() string {
 	return ": " + e.desc
 }
 
-// origin is what the entry comes from, in brackets after it; "" for none.
+// origin is what the entry comes from, after a space; "" for none.
 func (e rline) origin() string {
 	if e.from == "" {
 		return ""
 	}
-	return " (" + e.from + ")"
+	return " " + e.from
 }
 
 // entries are a group's entries as the report prints them: lost, gained,
