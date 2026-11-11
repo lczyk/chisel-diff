@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -26,11 +27,12 @@ import (
 )
 
 type flags struct {
-	Release     string   `long:"release" value-name:"<dir>" description:"chisel-releases checkout (default: .)"`
+	Release     string   `long:"release" value-name:"<dir|name>" description:"chisel-releases checkout, or a release name like ubuntu-26.04 whose branch of canonical/chisel-releases is fetched (default: .)"`
 	MergeBase   bool     `long:"merge-base" description:"with a single <a>: compare from its merge base with HEAD"`
 	Cached      bool     `long:"cached" description:"with a single <a>: compare to the index, not the working tree"`
 	Staged      bool     `long:"staged" description:"the same as --cached"`
 	NoIndex     bool     `long:"no-index" description:"compare two release dirs, without git"`
+	XRelease    bool     `short:"x" long:"x-release" description:"allow a comparison across ubuntu releases, which cuts only the packages or --slice named"`
 	Arches      []string `long:"arch" value-name:"<a>[,<a>...]" description:"architectures to compare; \"all\" for every one (default: host)"`
 	Slices      []string `long:"slice" value-name:"<s>[,<s>...]" description:"these slices, bare or <package>_<slice>, changed or not; \"all\" for every slice (default: removed, added and changed)"`
 	FailMissing bool     `long:"fail-missing" description:"exit 1 when a slice lost an entry or went away"`
@@ -42,7 +44,8 @@ type flags struct {
 	Verbose     []bool   `short:"v" long:"verbose" description:"one line per cut on stderr; twice also streams chisel's output"`
 	Version     bool     `long:"version" description:"print the version and exit"`
 
-	help bool // -h or --help was given
+	help   bool // -h or --help was given
+	noRevs bool // "--" came before any positional, so there are no revisions
 }
 
 // Main runs the CLI and returns a process exit code: 0 the comparison was
@@ -126,6 +129,16 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 	for _, n := range s.Notices {
 		notef("%s", n)
 	}
+	for _, w := range s.Warnings {
+		notef("warning: %s", w)
+	}
+	cross := s.Base.Release != "" && s.Head.Release != "" && s.Base.Release != s.Head.Release
+	if cross && !f.XRelease {
+		return 0, fmt.Errorf("the base is %s and the head %s: -x / --x-release compares across releases", s.Base.Release, s.Head.Release)
+	}
+	if cross && len(pkgs) == 0 && len(f.Slices) == 0 {
+		return 0, errors.New("a comparison across releases cuts only what is named: give packages, --slice=<s>, or --slice=all for every slice")
+	}
 	// Chisel reads and checks a whole release for a find that matches
 	// nothing, without the network.
 	for name, dir := range map[string]string{"base": s.Base.Dir, "head": s.Head.Dir} {
@@ -145,11 +158,27 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, o
 	if f.Slices != nil {
 		picks = f.Slices
 	}
-	res, err := changes.Compare(base, head, pkgs, picks)
+	considered := pkgs
+	if cross && len(pkgs) == 0 {
+		// Across releases nearly every file differs, so what is picked is
+		// looked for in every package.
+		considered = changes.Packages(base, head)
+	}
+	res, err := changes.Compare(base, head, considered, picks)
 	if err != nil {
 		return 0, err
 	}
-	if res.ChiselYAMLDiffers {
+	if cross {
+		// Only what is named is cut, not the slices prefer would add.
+		res.Prefer = nil
+		n := 0
+		for _, sl := range res.Reported() {
+			if sl.CutBase() || sl.CutHead() {
+				n++
+			}
+		}
+		notef("%s against %s: %d slices to cut, for %s", s.Base.Release, s.Head.Release, n, strings.Join(arches, ", "))
+	} else if res.ChiselYAMLDiffers {
 		if len(res.Packages) == 0 {
 			notef("chisel.yaml differs and no package was named, so nothing is compared")
 		} else {
@@ -226,15 +255,18 @@ func (f flags) spec(rest []string) (sides.Spec, []string, error) {
 		spec.Dirs = [2]string{rest[0], rest[1]}
 		rest = rest[2:]
 	} else {
-		if len(rest) == 0 {
-			return spec, nil, errors.New("no revisions given: <a>, <a>..<b> or <a>...<b>, as for git diff")
-		}
 		if spec.Release == "" {
 			spec.Release = "."
 		}
-		spec.Revisions = rest[0]
-		rest = rest[1:]
+		spec.Upstream, spec.Cache = sides.Upstream, sides.CacheDir()
+		// The first positional is the revisions, unless "--" came first or
+		// it is a package by the path of its file.
+		if len(rest) > 0 && !f.noRevs && !strings.HasSuffix(rest[0], ".yaml") {
+			spec.Revisions = rest[0]
+			rest = rest[1:]
+		}
 	}
+	spec.Unrelated = f.XRelease
 	pkgs := make([]string, len(rest))
 	for i, arg := range rest {
 		pkgs[i] = packageslicesfile.Package(arg)
@@ -252,7 +284,7 @@ func gitBinary() string {
 
 func newParser(f *flags) *goflags.Parser {
 	p := goflags.NewNamedParser("chisel-diff", goflags.HelpFlag|goflags.PassDoubleDash)
-	p.Usage = "[flags] <revisions> [<package>...]\n  chisel-diff [flags] --no-index <dir> <dir> [<package>...]"
+	p.Usage = "[flags] [<revisions>] [--] [<package>...]\n  chisel-diff [flags] --no-index <dir> <dir> [<package>...]"
 	p.LongDescription = strings.TrimSpace(`
 git diff for what slices deliver. the slices whose definition changed between
 two revisions of a chisel-releases checkout are cut from both with the real
@@ -260,9 +292,15 @@ chisel, and the paths each lost, gained or changed are reported per
 architecture.
 
 <revisions> is as for git diff: <a> compares <a> with the working tree,
-<a>..<b> the two revisions, <a>...<b> the merge base of the two with <b>. a
+<a>..<b> the two revisions, <a>...<b> the merge base of the two with <b>.
+with none, the files on disk are compared from where HEAD parted from the
+branch of the release chisel.yaml is of, ubuntu-26.04 say, as a pull request
+would be: the local branch, else the one of the remote for
+canonical/chisel-releases, else it is fetched. with --release=<name> the head is
+the tip of that branch, and with no revisions its first parent the base. a
 package may be given as the path of its file, slices/<package>.yaml, and
-without any every package whose file differs is looked at. the "chisel" binary
+without any every package whose file differs is looked at. a comparison across
+ubuntu releases, by their chisel.yaml, needs -x. the "chisel" binary
 is found on PATH, or set CHISEL=/path/to/chisel, and "git" likewise with GIT.
 "version" and "help" as the first argument are --version and --help.`)
 	if _, err := p.AddGroup("flags", "", f); err != nil {
@@ -290,6 +328,9 @@ func parseArgs(args []string, help io.Writer) (f flags, rest []string, err error
 	}
 	for _, l := range []*[]string{&f.Arches, &f.Slices} {
 		*l = splitLists(*l)
+	}
+	if dash := slices.Index(args, "--"); dash >= 0 {
+		f.noRevs = len(rest) == len(args)-dash-1
 	}
 	return f, rest, nil
 }

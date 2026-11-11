@@ -31,6 +31,17 @@ func TestParseArgs(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, f.Release, "")
 	assert.Nil(t, f.Slices)
+	assert.That(t, !f.noRevs)
+
+	// "--" before any positional: no revisions, as for git diff.
+	f, rest, err = parseArgs([]string{"-x", "--", "HEAD"}, io.Discard)
+	assert.NoError(t, err)
+	assert.That(t, f.noRevs && f.XRelease)
+	assert.EqualArrays(t, rest, []string{"HEAD"})
+	f, rest, err = parseArgs([]string{"main", "--", "bash"}, io.Discard)
+	assert.NoError(t, err)
+	assert.That(t, !f.noRevs)
+	assert.EqualArrays(t, rest, []string{"main", "bash"})
 
 	_, _, err = parseArgs([]string{"--nope", "HEAD"}, io.Discard)
 	assert.Error(t, err, "unknown flag `nope'")
@@ -39,24 +50,43 @@ func TestParseArgs(t *testing.T) {
 	f, _, err = parseArgs([]string{"HEAD", "-h"}, &help)
 	assert.NoError(t, err)
 	assert.That(t, f.help)
-	assert.ContainsString(t, help.String(), "chisel-diff [flags] <revisions> [<package>...]")
+	assert.ContainsString(t, help.String(), "chisel-diff [flags] [<revisions>] [--] [<package>...]")
 	assert.ContainsString(t, help.String(), "chisel-diff [flags] --no-index <dir> <dir> [<package>...]")
 	assert.ContainsString(t, help.String(), "--fail-missing")
 }
 
 func TestSpec(t *testing.T) {
 	t.Setenv("GIT", "")
+	t.Setenv("XDG_CACHE_HOME", "/c")
+	clone := "/c/chisel-diff/chisel-releases.git"
 	spec, pkgs, err := flags{}.spec([]string{"main...topic", "bash", "slices/dash.yaml", "../rel/slices/extra/zsh.yaml"})
 	assert.NoError(t, err)
-	assert.Equal(t, spec, sides.Spec{Release: ".", Revisions: "main...topic", Git: "git"})
+	assert.Equal(t, spec, sides.Spec{Release: ".", Revisions: "main...topic", Upstream: sides.Upstream, Cache: clone, Git: "git"})
 	// A package may be named by the path of its file.
 	assert.EqualArrays(t, pkgs, []string{"bash", "dash", "zsh"})
 
 	t.Setenv("GIT", "/opt/git")
-	spec, pkgs, err = flags{Release: "/r", Staged: true, MergeBase: true}.spec([]string{"main"})
+	spec, pkgs, err = flags{Release: "/r", Staged: true, MergeBase: true, XRelease: true}.spec([]string{"main"})
 	assert.NoError(t, err)
-	assert.Equal(t, spec, sides.Spec{Release: "/r", Revisions: "main", Cached: true, MergeBase: true, Git: "/opt/git"})
+	assert.Equal(t, spec, sides.Spec{Release: "/r", Revisions: "main", Cached: true, MergeBase: true, Unrelated: true, Upstream: sides.Upstream, Cache: clone, Git: "/opt/git"})
 	assert.Len(t, pkgs, 0)
+
+	// No revisions: none given, a package by the path of its file first, or
+	// "--" first.
+	for _, c := range []struct {
+		f    flags
+		rest []string
+		pkgs []string
+	}{
+		{flags{}, nil, []string{}},
+		{flags{}, []string{"slices/bash.yaml", "dash"}, []string{"bash", "dash"}},
+		{flags{noRevs: true}, []string{"HEAD"}, []string{"HEAD"}},
+	} {
+		spec, pkgs, err = c.f.spec(c.rest)
+		assert.NoError(t, err)
+		assert.Equal(t, spec.Revisions, "")
+		assert.EqualArrays(t, pkgs, c.pkgs)
+	}
 
 	spec, pkgs, err = flags{NoIndex: true}.spec([]string{"/a", "/b", "bash"})
 	assert.NoError(t, err)
@@ -69,7 +99,6 @@ func TestSpec(t *testing.T) {
 		f    flags
 		rest []string
 	}{
-		"no revisions given":                    {flags{}, nil},
 		"--no-index takes two release dir":      {flags{NoIndex: true}, []string{"/a"}},
 		"--no-index takes two directories and":  {flags{NoIndex: true, Release: "/r"}, []string{"/a", "/b"}},
 		"--name-status cuts nothing, so it can": {flags{NameStatus: true, FailMissing: true}, []string{"HEAD"}},
@@ -198,6 +227,41 @@ func TestRunCutsAndReports(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, code, 0)
 	assert.Equal(t, out.String(), "")
+}
+
+func TestAcrossReleases(t *testing.T) {
+	dir := checkout(t)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	yaml := func(version string) {
+		content := "format: v1\narchives:\n  ubuntu:\n    version: " + version + "\n"
+		assert.NoError(t, os.WriteFile(filepath.Join(dir, "chisel.yaml"), []byte(content), 0644))
+	}
+	yaml("24.04")
+	for _, args := range [][]string{{"add", "chisel.yaml"}, {"commit", "-q", "-m", "24.04"}} {
+		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+		assert.NoError(t, err, string(out))
+	}
+	yaml("26.04")
+	run := func(f flags, args ...string) (string, error) {
+		var out bytes.Buffer
+		spec, pkgs, err := f.spec(args)
+		assert.NoError(t, err)
+		_, err = run(context.Background(), f, spec, pkgs, []string{"amd64"}, &out)
+		return out.String(), err
+	}
+
+	_, err := run(flags{Release: dir, NameStatus: true}, "HEAD")
+	assert.Error(t, err, "the base is ubuntu-24.04 and the head ubuntu-26.04: -x / --x-release compares across releases")
+	_, err = run(flags{Release: dir, NameStatus: true, XRelease: true}, "HEAD")
+	assert.Error(t, err, "a comparison across releases cuts only what is named")
+
+	// What is picked is looked for in every package, and only that.
+	out, err := run(flags{Release: dir, NameStatus: true, XRelease: true, Slices: []string{"bins"}}, "HEAD")
+	assert.NoError(t, err)
+	assert.Equal(t, out, "bash bins: changed\n")
+	out, err = run(flags{Release: dir, NameStatus: true, XRelease: true}, "HEAD", "bash")
+	assert.NoError(t, err)
+	assert.Equal(t, out, "bash bins: changed\nbash config: removed\nbash scripts: added\n")
 }
 
 func TestASideChiselRefusesIsAnError(t *testing.T) {

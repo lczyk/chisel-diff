@@ -192,13 +192,28 @@ func TestNoMergeBase(t *testing.T) {
 	r.write("chisel.yaml", "format: v1\n")
 	r.commit("unrelated")
 	_, err := Resolve(context.Background(), r.spec("main..."))
-	assert.Error(t, err, "have no merge base: fetch more history")
+	assert.Error(t, err, "main and HEAD share no history, so they have no merge base: compare the tips with main..HEAD")
 	_, err = Resolve(context.Background(), Spec{Release: r.dir, Revisions: "main", MergeBase: true, Git: "git"})
-	assert.Error(t, err, "have no merge base")
-	// Tips still compare.
+	assert.Error(t, err, "share no history")
+	// Tips still compare, and are said to share nothing rather than told to
+	// use a merge base there is none of.
 	s, err := Resolve(context.Background(), r.spec("main.."))
 	assert.NoError(t, err)
+	assert.EqualArrays(t, s.Notices, []string{"main and HEAD share no history, so the tips are compared"})
 	s.Remove()
+	// Allowed, a merge base asked for and not there is the tips.
+	s, err = Resolve(context.Background(), Spec{Release: r.dir, Revisions: "main...", Unrelated: true, Git: "git"})
+	assert.NoError(t, err)
+	assert.Equal(t, s.Base.Rev, s.Base.Tip)
+	assert.That(t, !s.MergeBase)
+	assert.EqualArrays(t, s.Notices, []string{"main and HEAD share no history, so the tips are compared"})
+	s.Remove()
+
+	// In a shallow clone the history may be there and not fetched.
+	shallow := filepath.Join(t.TempDir(), "shallow")
+	r.git("clone", "-q", "--depth", "1", "--no-single-branch", "file://"+r.dir, shallow)
+	_, err = Resolve(context.Background(), Spec{Release: shallow, Revisions: "origin/main...origin/topic", Unrelated: true, Git: "git"})
+	assert.Error(t, err, "have no merge base in this shallow clone: fetch more history")
 }
 
 func TestIndexIsWhatIsStaged(t *testing.T) {

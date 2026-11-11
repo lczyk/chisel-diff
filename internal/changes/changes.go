@@ -236,6 +236,21 @@ func (r *Result) picked() bool {
 	return false
 }
 
+// Packages are the packages of either release, sorted.
+func Packages(base, head *Release) []string {
+	var out []string
+	for pkg := range base.files {
+		out = append(out, pkg)
+	}
+	for pkg := range head.files {
+		if base.files[pkg] == nil {
+			out = append(out, pkg)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Compare says what state every slice of the packages considered is in.
 // The packages considered are the named ones, or else every package whose
 // file differs between the two releases, byte for byte, and with either the

@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -34,12 +35,24 @@ const (
 
 // Spec is the comparison asked for, as the command line gives it.
 type Spec struct {
-	Release   string // the chisel-releases checkout, maybe a subdirectory of its repo
-	Revisions string // <a>, <a>..<b> or <a>...<b>
-	MergeBase bool   // with a single <a>: compare from its merge base with HEAD
-	Cached    bool   // with a single <a>: compare to the index
-	NoIndex   bool   // compare Dirs, without git
+	// Release is the chisel-releases checkout, maybe a subdirectory of its
+	// repo, or a release name such as ubuntu-26.04, whose branch of Upstream
+	// is then the checkout and its tip HEAD.
+	Release string
+	// Revisions are <a>, <a>..<b> or <a>...<b>. With none, a checkout's
+	// files are compared from where HEAD parted from the branch of the
+	// release its chisel.yaml is of, and a release name's tip with its first
+	// parent.
+	Revisions string
+	MergeBase bool // with a single <a>: compare from its merge base with HEAD
+	Cached    bool // with a single <a>: compare to the index
+	NoIndex   bool // compare Dirs, without git
 	Dirs      [2]string
+	// Unrelated lets a comparison that wants a merge base compare two tips
+	// that share no history, as release branches of some ubuntu releases do.
+	Unrelated bool
+	Upstream  string // the chisel-releases repo a release name is a branch of
+	Cache     string // where the clone of Upstream is kept
 	Git       string // the git binary
 }
 
@@ -51,6 +64,9 @@ type Side struct {
 	Rev  string // the revision compared: the merge base or Tip; "" for a side that is none
 	Path string // the directory given, for a Dir side
 	Dir  string // the snapshot: chisel.yaml and the slice dirs
+	// Release is the release the snapshot's chisel.yaml is of, ubuntu-26.04
+	// say; "" when it names none.
+	Release string
 }
 
 // Sides is a resolved comparison. Remove it when done.
@@ -58,6 +74,7 @@ type Sides struct {
 	Base, Head Side
 	MergeBase  bool     // the base is a merge base
 	Notices    []string // what a reader should know of how the sides were resolved
+	Warnings   []string // what looks unusual enough to be a mistake
 	tmp        string
 }
 
@@ -88,6 +105,9 @@ func Resolve(ctx context.Context, spec Spec) (*Sides, error) {
 		s.Remove()
 		return nil, err
 	}
+	for _, side := range []*Side{&s.Base, &s.Head} {
+		side.Release, _ = releaseOf(filepath.Join(side.Dir, "chisel.yaml"))
+	}
 	return s, nil
 }
 
@@ -105,68 +125,101 @@ func (s *Sides) dirs(spec Spec) error {
 }
 
 func (s *Sides) revisions(ctx context.Context, spec Spec) error {
-	g := &git{ctx: ctx, bin: spec.Git, dir: spec.Release}
-	prefix, err := g.path("rev-parse", "--show-prefix")
+	r, prefix, err := s.open(ctx, spec)
 	if err != nil {
-		return fmt.Errorf("%s is not in a git checkout: %w", spec.Release, err)
+		return err
 	}
-	a, b, dots, err := split(spec.Revisions)
+	g := r.g
+	revs, mergeBase := spec.Revisions, spec.MergeBase
+	if r.named != "" && spec.Cached {
+		return fmt.Errorf("--cached needs a checkout, and %s is a release name", r.named)
+	}
+	if revs == "" {
+		if r.named != "" {
+			if mergeBase {
+				return errors.New("--merge-base takes the revision to compare from")
+			}
+			revs = "HEAD^1"
+			s.warnf("no revisions given: the tip of %s is compared with its first parent, the last change merged into it. <a>..<b> compares anything else", r.named)
+		} else {
+			name, err := releaseOf(filepath.Join(spec.Release, "chisel.yaml"))
+			if err != nil {
+				return fmt.Errorf("no revisions given, and no release branch to compare with: %w. give <a>", err)
+			}
+			revs, mergeBase, r.branch = name, true, name
+			s.notef("no revisions given: the files on disk are compared from where HEAD parted from %s, the release chisel.yaml is of. --merge-base <ref> picks another branch", name)
+		}
+	}
+	a, b, dots, err := split(revs)
 	if err != nil {
 		return err
 	}
 	switch {
-	case dots > 0 && spec.MergeBase:
+	case dots > 0 && mergeBase:
 		return errors.New("--merge-base does not work with a range, use <a>...<b>")
 	case dots > 0 && spec.Cached:
 		return errors.New("--cached takes a single revision, not a range")
 	}
-	head, err := g.commit("HEAD")
-	if err != nil {
-		return err
-	}
-	s.Base.Kind, s.Base.Ref = Rev, a
-	if s.Base.Tip, err = g.commit(a); err != nil {
+	s.Base.Kind = Rev
+	if s.Base.Tip, s.Base.Ref, err = r.commit(a); err != nil {
 		return err
 	}
 	s.Base.Rev = s.Base.Tip
-	s.Head.Tip = head
+	s.Head.Tip = r.head
 	switch {
 	case dots > 0:
-		s.Head.Kind, s.Head.Ref = Rev, b
-		if s.Head.Tip, err = g.commit(b); err != nil {
+		s.Head.Kind = Rev
+		if s.Head.Tip, s.Head.Ref, err = r.commit(b); err != nil {
 			return err
 		}
 		s.Head.Rev = s.Head.Tip
+	case r.named != "":
+		s.Head.Kind, s.Head.Ref, s.Head.Rev = Rev, r.named, r.head
+		b = r.named
 	case spec.Cached:
 		s.Head.Kind = Index
 	default:
 		s.Head.Kind = Worktree
 	}
+	a = s.Base.Ref
+	if s.Head.Ref != "" {
+		b = s.Head.Ref
+	}
 
 	// What the base is compared with when a merge base or an ancestor is
 	// asked about: the head revision, or HEAD under a working tree or index.
 	against := s.Head.Tip
-	if dots == 3 || spec.MergeBase {
+	if dots == 3 || mergeBase {
 		bases, err := g.lines("merge-base", "--all", s.Base.Tip, against)
-		if err != nil || len(bases) == 0 {
-			return fmt.Errorf("%s and %s have no merge base: fetch more history (fetch-depth: 0 in a workflow), or compare the tips with %s..%s", a, b, a, b)
-		}
-		if len(bases) > 1 {
-			if spec.MergeBase {
-				return fmt.Errorf("multiple merge bases found for %s and HEAD", a)
+		switch {
+		case (err != nil || len(bases) == 0) && g.line1("rev-parse", "--is-shallow-repository") == "true":
+			return fmt.Errorf("%s and %s have no merge base in this shallow clone: fetch more history (fetch-depth: 0 in a workflow), or compare the tips with %s..%s", a, b, a, b)
+		case (err != nil || len(bases) == 0) && !spec.Unrelated:
+			return fmt.Errorf("%s and %s share no history, so they have no merge base: compare the tips with %s..%s", a, b, a, b)
+		case err != nil || len(bases) == 0:
+			s.notef("%s and %s share no history, so the tips are compared", a, b)
+		default:
+			if len(bases) > 1 {
+				if spec.MergeBase {
+					return fmt.Errorf("multiple merge bases found for %s and HEAD", a)
+				}
+				s.notef("%s and %s have %d merge bases, using %s", a, b, len(bases), short(bases[0]))
 			}
-			s.notef("%s and %s have %d merge bases, using %s", a, b, len(bases), short(bases[0]))
-		}
-		s.Base.Rev, s.MergeBase = bases[0], true
-		if s.Base.Rev != s.Base.Tip {
-			s.notef("base is %s, the merge base of %s and %s", short(s.Base.Rev), a, b)
+			s.Base.Rev, s.MergeBase = bases[0], true
+			if s.Base.Rev != s.Base.Tip {
+				s.notef("base is %s, the merge base of %s and %s", short(s.Base.Rev), a, b)
+			}
 		}
 	} else if !g.ok("merge-base", "--is-ancestor", s.Base.Rev, against) {
-		instead := "--merge-base " + a
-		if dots > 0 {
-			instead = a + "..." + b
+		if !g.ok("merge-base", s.Base.Rev, against) {
+			s.notef("%s and %s share no history, so the tips are compared", a, b)
+		} else {
+			instead := "--merge-base " + a
+			if dots > 0 {
+				instead = a + "..." + b
+			}
+			s.notef("%s is not an ancestor of %s, so what it gained since they parted reads as lost. %s compares from where they parted", a, b, instead)
 		}
-		s.notef("%s is not an ancestor of %s, so what it gained since they parted reads as lost. %s compares from where they parted", a, b, instead)
 	}
 
 	if err := g.tree(s.Base.Rev, prefix, s.Base.Dir, nil); err != nil {
@@ -183,6 +236,10 @@ func (s *Sides) revisions(ctx context.Context, spec Spec) error {
 
 func (s *Sides) notef(format string, args ...any) {
 	s.Notices = append(s.Notices, fmt.Sprintf(format, args...))
+}
+
+func (s *Sides) warnf(format string, args ...any) {
+	s.Warnings = append(s.Warnings, fmt.Sprintf(format, args...))
 }
 
 func short(sha string) string {
@@ -222,12 +279,24 @@ type git struct {
 	bin string
 	dir string
 	env []string // on top of the process's own
+	alt []string // object dirs read as well as the repo's own
 }
 
 func (g *git) cmd(args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(g.ctx, g.bin, append([]string{"-C", g.dir}, args...)...)
-	if g.env != nil {
-		cmd.Env = append(os.Environ(), g.env...)
+	env := g.env
+	if len(g.alt) > 0 {
+		dirs := make([]string, len(g.alt))
+		for i, d := range g.alt {
+			dirs[i] = alternate(d)
+		}
+		if inherited := os.Getenv("GIT_ALTERNATE_OBJECT_DIRECTORIES"); inherited != "" {
+			dirs = append(dirs, inherited)
+		}
+		env = append(slices.Clone(env), "GIT_ALTERNATE_OBJECT_DIRECTORIES="+strings.Join(dirs, ":"))
+	}
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
 	}
 	return cmd
 }
@@ -259,6 +328,12 @@ func (g *git) path(args ...string) (string, error) {
 	return strings.TrimSuffix(string(out), "\n"), err
 }
 
+// line1 is git's answer, "" when it has none.
+func (g *git) line1(args ...string) string {
+	out, _ := g.line(args...)
+	return out
+}
+
 func (g *git) lines(args ...string) ([]string, error) {
 	out, err := g.out(args...)
 	return strings.Fields(string(out)), err
@@ -278,7 +353,10 @@ func (g *git) commit(rev string) (string, error) {
 // tree writes the release under prefix of a tree-ish out to dst, from git's
 // objects: the tree as committed, whatever export-ignore and the like say.
 func (g *git) tree(treeish, prefix, dst string, env []string) error {
-	g = &git{ctx: g.ctx, bin: g.bin, dir: g.dir, env: env}
+	if env == nil {
+		env = g.env
+	}
+	g = &git{ctx: g.ctx, bin: g.bin, dir: g.dir, env: env, alt: g.alt}
 	listing, err := g.out("ls-tree", "-r", "-z", "--full-tree", treeish+":"+strings.TrimSuffix(prefix, "/"))
 	if err != nil {
 		return err
@@ -389,13 +467,12 @@ func (g *git) index(prefix, dst string) error {
 			return err
 		}
 	}
-	env := []string{"GIT_INDEX_FILE=" + index, "GIT_OBJECT_DIRECTORY=" + objects, "GIT_ALTERNATE_OBJECT_DIRECTORIES=" + alternate(paths[1])}
-	staged := &git{ctx: g.ctx, bin: g.bin, dir: g.dir, env: env}
+	staged := &git{ctx: g.ctx, bin: g.bin, dir: g.dir, env: []string{"GIT_INDEX_FILE=" + index, "GIT_OBJECT_DIRECTORY=" + objects}, alt: append([]string{paths[1]}, g.alt...)}
 	tree, err := staged.line("write-tree")
 	if err != nil {
 		return fmt.Errorf("the index cannot be written as a tree: %w", err)
 	}
-	return g.tree(tree, prefix, dst, env)
+	return staged.tree(tree, prefix, dst, nil)
 }
 
 // alternate is a path as one entry of GIT_ALTERNATE_OBJECT_DIRECTORIES,
