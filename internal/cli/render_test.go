@@ -263,19 +263,19 @@ func TestRenderTree(t *testing.T) {
 	var out bytes.Buffer
 	renderText(&out, res, true, true, style{})
 	assert.Equal(t, out.String(), boxes(`x_s 1 [amd64]
-! /etc/x: no content
-  /usr/
-  T- bin/
-+ |  T- new
-~ |  L- su: file 4755 -> file 0755
-  T- lib/
-- |  T- libA.so.1
-- |  L- libB.so.1
-  L- share/doc/
--    T- liba/copyright
--    L- libb/copyright
-~ /var/run/: dir -> symlink to /run
-- L- x
+!/etc/x: no content
+/usr/
+T- bin/
+|  T- +new
+|  L- ~su: file 4755 -> file 0755
+T- lib/
+|  T- -libA.so.1
+|  L- -libB.so.1
+L- share/doc/
+   T- -liba/copyright
+   L- -libb/copyright
+~/var/run/: dir -> symlink to /run
+L- -x
 `))
 
 	// The tree holds the flat report's entries, one line each.
@@ -284,6 +284,7 @@ func TestRenderTree(t *testing.T) {
 	signed := func(s string) int {
 		n := 0
 		for _, l := range strings.Split(s, "\n") {
+			l = strings.TrimLeft(l, " \u2502\u251c\u2514\u2500")
 			if l != "" && strings.ContainsRune("-+~!", rune(l[0])) {
 				n++
 			}
@@ -299,21 +300,21 @@ func TestRenderTree(t *testing.T) {
 	res = &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed, compared("amd64", "1", two["amd64"]), compared("arm64", "1", two["arm64"]))}}
 	out.Reset()
 	renderText(&out, res, true, true, style{})
-	assert.Equal(t, out.String(), "x_s 1 [amd64, arm64]\n- /usr/lib/<arch>-linux-<gnu>/a\n")
+	assert.Equal(t, out.String(), "x_s 1 [amd64, arm64]\n-/usr/lib/<arch>-linux-<gnu>/a\n")
 	out.Reset()
 	renderText(&out, res, false, true, style{})
-	assert.Equal(t, out.String(), "x_s 1 [amd64]\n- /usr/lib/x86_64-linux-gnu/a\nx_s 1 [arm64]\n- /usr/lib/aarch64-linux-gnu/a\n")
+	assert.Equal(t, out.String(), "x_s 1 [amd64]\n-/usr/lib/x86_64-linux-gnu/a\nx_s 1 [arm64]\n-/usr/lib/aarch64-linux-gnu/a\n")
 
 	// Sorted by the name drawn: /a/z folded is after /a-b.
 	res = &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed, compared("amd64", "1", lost("/a/z"), lost("/a-b")))}}
 	out.Reset()
 	renderText(&out, res, true, true, style{})
-	assert.Equal(t, out.String(), "x_s 1 [amd64]\n- /a-b\n- /a/z\n")
+	assert.Equal(t, out.String(), "x_s 1 [amd64]\n-/a-b\n-/a/z\n")
 
-	// Colour: the sign and the entry take the sign's, the glyphs are dim, a
+	// Colour: the entry and its sign take the sign's, the glyphs are dim, a
 	// directory drawn only to hold others is plain.
 	res = &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed, compared("amd64", "1", lost("/a/b"), lost("/a/c")))}}
 	out.Reset()
 	renderText(&out, res, true, true, colours)
-	assert.Equal(t, out.String(), boxes("\x1b[1;34mx_s\x1b[0m 1 [amd64]\n  /a/\n\x1b[31m-\x1b[0m \x1b[2mT- \x1b[0m\x1b[31mb\x1b[0m\n\x1b[31m-\x1b[0m \x1b[2mL- \x1b[0m\x1b[31mc\x1b[0m\n"))
+	assert.Equal(t, out.String(), boxes("\x1b[1;34mx_s\x1b[0m 1 [amd64]\n/a/\n\x1b[2mT- \x1b[0m\x1b[31m-b\x1b[0m\n\x1b[2mL- \x1b[0m\x1b[31m-c\x1b[0m\n"))
 }

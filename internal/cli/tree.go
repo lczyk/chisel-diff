@@ -15,12 +15,11 @@ type tnode struct {
 }
 
 // treeLines draws a block's entries as a tree of their paths, as --tree
-// shows them. The sign is a column of its own at the start of every line, a
-// space for a directory drawn only to hold others, so grep '^-' still finds
-// every lost entry, by its last segment. Every entry is a line of its own:
-// one drawn for no entry folds with the one segment under it, and an entry
-// stops the fold. Top-level names keep their leading slash and no box
-// drawing.
+// shows them. An entry's sign is glued to its name, as the flat report glues
+// it to the path, and a directory drawn only to hold others has none. Every
+// entry is a line of its own: a segment drawn for no entry folds with the one
+// under it, and an entry stops the fold. Top-level names keep their leading
+// slash and no box drawing.
 func treeLines(es []rline, st style) []string {
 	root := &tnode{kids: map[string]*tnode{}}
 	for _, e := range es {
@@ -89,18 +88,18 @@ func drawNode(n *tnode, prefix string, last, top bool, st style, out *[]string) 
 	}
 	lead := dim(prefix) + dim(glyph)
 	if len(n.entries) == 0 {
-		*out = append(*out, "  "+lead+name+"/")
+		*out = append(*out, lead+name+"/")
 	}
 	sort.SliceStable(n.entries, func(i, j int) bool { return n.entries[i].path < n.entries[j].path })
 	for _, e := range n.entries {
-		text := name
+		text := string(e.sign) + name
 		if strings.HasSuffix(e.path, "/") {
 			text += "/"
 		}
 		if e.desc != "" {
 			text += ": " + e.desc
 		}
-		*out = append(*out, st.paint(e.sign, string(e.sign))+" "+lead+st.paint(e.sign, text))
+		*out = append(*out, lead+st.paint(e.sign, text))
 	}
 	drawKids(n, prefix+pad, false, st, out)
 }
