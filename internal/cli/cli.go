@@ -14,12 +14,14 @@ import (
 	goflags "github.com/jessevdk/go-flags"
 	ver "github.com/lczyk/version/go"
 
+	"github.com/lczyk/chisel-coverage/pkg/cache"
 	"github.com/lczyk/chisel-coverage/pkg/cut"
 	"github.com/lczyk/chisel-coverage/pkg/packageslicesfile"
 	"github.com/lczyk/chisel-coverage/pkg/pool"
 
 	chiseldiff "github.com/lczyk/chisel-diff"
 	"github.com/lczyk/chisel-diff/internal/changes"
+	"github.com/lczyk/chisel-diff/internal/diff"
 	"github.com/lczyk/chisel-diff/internal/sides"
 )
 
@@ -74,7 +76,8 @@ func Main(args []string) int {
 		errf(err)
 		return 2
 	}
-	if _, err := pool.ResolveArches(f.Arches); err != nil {
+	arches, err := pool.ResolveArches(f.Arches)
+	if err != nil {
 		errf(err)
 		return 2
 	}
@@ -91,7 +94,7 @@ func Main(args []string) int {
 		<-ctx.Done()
 		stop()
 	}()
-	code, err := run(ctx, f, spec, pkgs, os.Stdout)
+	code, err := run(ctx, f, spec, pkgs, arches, os.Stdout)
 	if ctx.Err() != nil {
 		errf(errors.New("interrupted"))
 		return 130
@@ -103,8 +106,10 @@ func Main(args []string) int {
 	return code
 }
 
-// run makes the comparison and renders it on out.
-func run(ctx context.Context, f flags, spec sides.Spec, pkgs []string, out io.Writer) (int, error) {
+// run makes the comparison and renders it on out. The code is 1 with
+// --fail-missing and something missing, 2 when a cut failed or the archive
+// moved, which is said on stderr once the report is out.
+func run(ctx context.Context, f flags, spec sides.Spec, pkgs, arches []string, out io.Writer) (int, error) {
 	runner := &cut.Runner{Bin: cut.Binary()}
 	if len(f.Verbose) >= 2 {
 		runner.Verbose = os.Stderr
@@ -157,7 +162,45 @@ func run(ctx context.Context, f flags, spec sides.Spec, pkgs []string, out io.Wr
 		}
 		return 0, nil
 	}
-	return 0, errors.New("cutting is not built yet, only --name-status is")
+	if f.JSON {
+		return 0, errors.New("--json is not built yet")
+	}
+	opts := diff.Options{
+		Base:       s.Base.Dir,
+		Head:       s.Head.Dir,
+		Arches:     arches,
+		OneArchive: !res.ChiselYAMLDiffers,
+		Keep:       f.Keep,
+		Jobs:       f.Jobs,
+		Cache:      cache.Dir(),
+		Runner:     runner,
+		Log:        os.Stderr,
+	}
+	if len(f.Verbose) >= 1 {
+		opts.Verbose = os.Stderr
+	}
+	archiveDiffers := map[string]bool{}
+	for _, p := range res.Packages {
+		archiveDiffers[p.Name] = p.ArchiveDiffers
+	}
+	result, err := diff.Run(ctx, opts, res, archiveDiffers)
+	if err != nil {
+		return 0, err
+	}
+	renderText(out, result, !f.NoGroup)
+	if len(f.Verbose) >= 1 {
+		notef("%s", summary(result))
+	}
+	for _, err := range result.Errors {
+		errf(err)
+	}
+	switch {
+	case len(result.Errors) > 0:
+		return 2, nil
+	case f.FailMissing && result.Missing():
+		return 1, nil
+	}
+	return 0, nil
 }
 
 // spec reads the positionals: the revisions, or two directories with

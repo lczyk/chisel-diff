@@ -79,12 +79,25 @@ func TestSpec(t *testing.T) {
 	}
 }
 
-// fakeChisel accepts any release, unless its chisel.yaml says "bad".
+// fakeChisel accepts any release, unless its chisel.yaml says "bad". A cut
+// delivers every path the package's file lists, whichever the slice.
 const fakeChisel = `#!/bin/sh
+cmd="$1"
 while [ $# -gt 1 ]; do
-  case "$1" in --release) release="$2"; shift 2;; *) shift;; esac
+  case "$1" in
+    --release) release="$2"; shift 2;;
+    --root) root="$2"; shift 2;;
+    *) shift;;
+  esac
 done
 if grep -q bad "$release/chisel.yaml"; then echo "error: chisel.yaml: no good" >&2; exit 1; fi
+[ "$cmd" = cut ] || exit 0
+pkg="${1%%_*}"
+echo "Fetching pool/main/x/$pkg/${pkg}_5.2-1_amd64.deb..." >&2
+sed -n 's|^      \(/[^:]*\):.*|\1|p' "$release/slices/$pkg.yaml" | while read -r path; do
+  mkdir -p "$root$(dirname "$path")"
+  echo x > "$root$path"
+done
 exit 0
 `
 
@@ -128,7 +141,7 @@ func TestNameStatus(t *testing.T) {
 	f := flags{Release: dir, NameStatus: true}
 	spec, pkgs, err := f.spec([]string{"HEAD"})
 	assert.NoError(t, err)
-	code, err := run(context.Background(), f, spec, pkgs, &out)
+	code, err := run(context.Background(), f, spec, pkgs, []string{"amd64"}, &out)
 	assert.NoError(t, err)
 	assert.Equal(t, code, 0)
 	assert.Equal(t, out.String(), "bash bins: changed\nbash config: removed\nbash scripts: added\n")
@@ -136,7 +149,7 @@ func TestNameStatus(t *testing.T) {
 	// The committed revision against itself: nothing to name.
 	out.Reset()
 	spec, pkgs, _ = f.spec([]string{"HEAD..HEAD"})
-	_, err = run(context.Background(), f, spec, pkgs, &out)
+	_, err = run(context.Background(), f, spec, pkgs, []string{"amd64"}, &out)
 	assert.NoError(t, err)
 	assert.Equal(t, out.String(), "")
 
@@ -144,14 +157,47 @@ func TestNameStatus(t *testing.T) {
 	out.Reset()
 	f.Slices = []string{"config", "bins"}
 	spec, pkgs, _ = f.spec([]string{"HEAD..HEAD", filepath.Join(dir, "slices", "bash.yaml")})
-	_, err = run(context.Background(), f, spec, pkgs, &out)
+	_, err = run(context.Background(), f, spec, pkgs, []string{"amd64"}, &out)
 	assert.NoError(t, err)
 	assert.Equal(t, out.String(), "bash bins: same\nbash config: same\n")
 
 	// A name no side has is an error.
 	f.Slices = []string{"scripts"}
-	_, err = run(context.Background(), f, spec, pkgs, &out)
+	_, err = run(context.Background(), f, spec, pkgs, []string{"amd64"}, &out)
 	assert.Error(t, err, "--slice scripts: no such slice on either side")
+}
+
+func TestRunCutsAndReports(t *testing.T) {
+	dir := checkout(t)
+	t.Setenv("TMPDIR", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	var out bytes.Buffer
+	f := flags{Release: dir, Jobs: 1}
+	spec, pkgs, err := f.spec([]string{"HEAD"})
+	assert.NoError(t, err)
+	code, err := run(context.Background(), f, spec, pkgs, []string{"amd64"}, &out)
+	assert.NoError(t, err)
+	// The working tree dropped rbash from bins and the config slice whole,
+	// and gained a scripts slice. Only bins is cut.
+	want := "bash 5.2-1 bins [amd64]\n-/etc/skel/.bashrc\n-/usr/bin/rbash\n+/usr/bin/bashbug\nbash config: removed\nbash scripts: added\n"
+	assert.Equal(t, out.String(), want)
+	assert.Equal(t, code, 0)
+
+	// The same as a check.
+	out.Reset()
+	f.FailMissing = true
+	code, err = run(context.Background(), f, spec, pkgs, []string{"amd64"}, &out)
+	assert.NoError(t, err)
+	assert.Equal(t, code, 1)
+	assert.Equal(t, out.String(), want)
+
+	// Nothing lost between a revision and itself.
+	out.Reset()
+	spec, pkgs, _ = f.spec([]string{"HEAD..HEAD", "bash"})
+	code, err = run(context.Background(), f, spec, pkgs, []string{"amd64"}, &out)
+	assert.NoError(t, err)
+	assert.Equal(t, code, 0)
+	assert.Equal(t, out.String(), "")
 }
 
 func TestASideChiselRefusesIsAnError(t *testing.T) {
@@ -159,7 +205,7 @@ func TestASideChiselRefusesIsAnError(t *testing.T) {
 	assert.NoError(t, os.WriteFile(filepath.Join(dir, "chisel.yaml"), []byte("format: bad\n"), 0644))
 	f := flags{Release: dir, NameStatus: true}
 	spec, pkgs, _ := f.spec([]string{"HEAD"})
-	_, err := run(context.Background(), f, spec, pkgs, io.Discard)
+	_, err := run(context.Background(), f, spec, pkgs, []string{"amd64"}, io.Discard)
 	assert.Error(t, err, "the head is not a release chisel accepts")
 	assert.Error(t, err, "chisel.yaml: no good")
 }

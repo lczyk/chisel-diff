@@ -69,11 +69,9 @@ func captureStdout(t *testing.T, fn func() int) (int, string) {
 	return code, string(out)
 }
 
-// TestNameStatus drops a path from a real slice in the working tree and has
-// the real chisel accept both sides.
-func TestNameStatus(t *testing.T) {
-	requireE2E(t)
-	release := cloneRelease(t, t.TempDir())
+// dropSh takes /usr/bin/sh out of dash_bins in the working tree.
+func dropSh(t *testing.T, release string) {
+	t.Helper()
 	path := filepath.Join(release, "slices", "dash.yaml")
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -86,6 +84,14 @@ func TestNameStatus(t *testing.T) {
 	if err := os.WriteFile(path, []byte(edited), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestNameStatus drops a path from a real slice in the working tree and has
+// the real chisel accept both sides.
+func TestNameStatus(t *testing.T) {
+	requireE2E(t)
+	release := cloneRelease(t, t.TempDir())
+	dropSh(t, release)
 	code, out := captureStdout(t, func() int {
 		return cli.Main([]string{"--release", release, "--name-status", "HEAD"})
 	})
@@ -94,5 +100,31 @@ func TestNameStatus(t *testing.T) {
 	}
 	if out != "dash bins: changed\n" {
 		t.Fatalf("unexpected report:\n%s", out)
+	}
+}
+
+// TestLostPath cuts the slice from both sides for real and finds the path
+// that went, and nothing else.
+func TestLostPath(t *testing.T) {
+	requireE2E(t)
+	release := cloneRelease(t, t.TempDir())
+	dropSh(t, release)
+	code, out := captureStdout(t, func() int {
+		return cli.Main([]string{"--release", release, "--fail-missing", "HEAD"})
+	})
+	if code != 1 {
+		t.Fatalf("exit code %d, expected 1 for a lost path:\n%s", code, out)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "dash ") || !strings.Contains(lines[0], " bins [") || lines[1] != "-/usr/bin/sh" {
+		t.Fatalf("unexpected report:\n%s", out)
+	}
+
+	// The revision against itself loses nothing.
+	code, out = captureStdout(t, func() int {
+		return cli.Main([]string{"--release", release, "--fail-missing", "HEAD..HEAD", "dash", "--slice", "bins"})
+	})
+	if code != 0 || out != "" {
+		t.Fatalf("exit code %d for a revision against itself:\n%s", code, out)
 	}
 }
