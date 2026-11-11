@@ -2,7 +2,7 @@
 
 `git diff` for what [chisel](https://github.com/canonical/chisel) slices deliver.
 
-a development tool for [chisel-releases](https://github.com/canonical/chisel-releases) work, and a sister of [chisel-coverage](https://github.com/lczyk/chisel-coverage), [chisel-file](https://github.com/lczyk/chisel-file) and [chisel-proxy](https://github.com/lczyk/chisel-proxy). for two revisions of a release it cuts the slices whose definition changed, from both, with the real chisel, and reports the paths each lost or gained, per architecture.
+a development tool for [chisel-releases](https://github.com/canonical/chisel-releases) work, and a sister of [chisel-coverage](https://github.com/lczyk/chisel-coverage), [chisel-file](https://github.com/lczyk/chisel-file) and [chisel-proxy](https://github.com/lczyk/chisel-proxy). for two revisions of a release it cuts the slices whose definition changed, from both, with the real chisel, and reports the paths each lost, gained or changed, per architecture.
 
 ## why
 
@@ -24,7 +24,9 @@ openssl 3.0.13-0ubuntu3.16 config [amd64, arm64, armhf, i386, ppc64el, riscv64, 
 openssl scripts: added
 ```
 
-a line is `-<path>` for an entry lost and `+<path>` for one gained, so `grep '^-'` is the list of what went missing. architectures that agree are folded into one block. a slice that was added or removed is named and not cut.
+a line is `-<path>` for an entry lost, `+<path>` for one gained and `~<path>: <base> -> <head>` for one on both sides that changed kind, file mode or symlink target, so `grep '^-'` is the list of what went missing. architectures that agree are folded into one block. a slice that was added or removed is named and not cut.
+
+a base the archive has moved under, a slice naming a path its package no longer ships, does not cut, and the PR that drops the path is routine. so the base is cut again without the entries chisel named, and each is reported as `!<path>: no content`, neither lost nor gained.
 
 the two sides are named as for `git diff`:
 
@@ -47,11 +49,13 @@ without packages, every package whose file differs between the two sides is look
 - 1 -- only with `--fail-missing`: an entry was lost, a slice was removed, or a slice no longer cuts on an architecture.
 - 2 -- the comparison could not be made: a cut failed, the archive moved under the run, a side is not a release chisel accepts.
 
-## not there yet
+## known gaps
 
-entries that changed kind or mode, and a base that no longer cuts because the archive dropped a path it names (an error for now). `design.md` is the plan.
+- a directory's mode is not compared, since chisel does not make it the same from one cut to the next ([canonical/chisel#353](https://github.com/canonical/chisel/issues/353)).
+- a changed entry never fails the check. the reviewer reads the `~` lines.
+- with `prefer`, a slice nobody edited can lose a path ([canonical/chisel#354](https://github.com/canonical/chisel/issues/354)). slices that list such a path are cut as well, which finds it there. a slice that only reaches one of those through an essential is not looked at.
 
-one known gap: with `prefer`, a slice nobody edited can lose a path ([canonical/chisel#354](https://github.com/canonical/chisel/issues/354)). slices that list such a path are cut as well, which finds it there. a slice that only reaches one of those through an essential is not looked at.
+`design.md` is the design note the tool was built from.
 
 ## build
 
