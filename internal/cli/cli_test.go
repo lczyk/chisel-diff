@@ -283,11 +283,18 @@ func TestMainExitCodes(t *testing.T) {
 	os.Stdout, os.Stderr = devnull, devnull
 	defer func() { os.Stdout, os.Stderr = stdout, stderr }()
 
-	assert.Equal(t, Main(nil), 2)
 	assert.Equal(t, Main([]string{"version"}), 0)
 	assert.Equal(t, Main([]string{"help"}), 0)
 	assert.Equal(t, Main([]string{"--nope"}), 2)
-	assert.Equal(t, Main([]string{"--release", dir}), 2)
+	// No arguments at all is the bare form, as git diff, not the help.
+	assert.Equal(t, Main([]string{"--release", dir}), 0)
+	wd, err := os.Getwd()
+	assert.NoError(t, err)
+	assert.NoError(t, os.Chdir(dir))
+	defer func() { assert.NoError(t, os.Chdir(wd)) }()
+	assert.Equal(t, Main(nil), 0)
+	assert.NoError(t, os.Chdir(t.TempDir()))
+	assert.Equal(t, Main(nil), 2)
 	assert.Equal(t, Main([]string{"--release", dir, "--arch", "vax", "HEAD"}), 2)
 	assert.Equal(t, Main([]string{"--release", dir, "--jobs", "0", "HEAD"}), 2)
 	assert.Equal(t, Main([]string{"--release", dir, "--name-status", "nope"}), 2)

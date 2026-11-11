@@ -28,7 +28,7 @@ import (
 
 type flags struct {
 	Release     string   `long:"release" value-name:"<dir|name>" description:"chisel-releases checkout, or a release name like ubuntu-26.04 whose branch of canonical/chisel-releases is fetched (default: .)"`
-	MergeBase   bool     `long:"merge-base" description:"with a single <a>: compare from its merge base with HEAD"`
+	MergeBase   bool     `long:"merge-base" description:"compare from the merge base of <a> with HEAD; with no <a>, of the release branch chisel.yaml names"`
 	Cached      bool     `long:"cached" description:"with a single <a>: compare to the index, not the working tree"`
 	Staged      bool     `long:"staged" description:"the same as --cached"`
 	NoIndex     bool     `long:"no-index" description:"compare two release dirs, without git"`
@@ -52,11 +52,7 @@ type flags struct {
 // made, 1 with --fail-missing and something missing, 2 the comparison could
 // not be made, 130 interrupted.
 func Main(args []string) int {
-	if len(args) == 0 {
-		_, _, _ = parseArgs([]string{"--help"}, os.Stderr)
-		return 2
-	}
-	switch args[0] {
+	switch first(args) {
 	case "version":
 		args = []string{"--version"}
 	case "help":
@@ -308,22 +304,27 @@ func newParser(f *flags) *goflags.Parser {
 	p.Usage = "[flags] [<revisions>] [--] [<package>...]\n  chisel-diff [flags] --no-index <dir> <dir> [<package>...]"
 	p.LongDescription = strings.TrimSpace(`
 git diff for what slices deliver. the slices whose definition changed between
-two revisions of a chisel-releases checkout are cut from both with the real
+two sides of a chisel-releases checkout are cut from both with the real
 chisel, and the paths each lost, gained or changed are reported per
 architecture.
 
-<revisions> is as for git diff: <a> compares <a> with the working tree,
-<a>..<b> the two revisions, <a>...<b> the merge base of the two with <b>.
-with none, the files on disk are compared from where HEAD parted from the
-branch of the release chisel.yaml is of, ubuntu-26.04 say, as a pull request
-would be: the local branch, else the one of the remote for
-canonical/chisel-releases, else it is fetched. with --release=<name> the head is
-the tip of that branch, and with no revisions its first parent the base. a
-package may be given as the path of its file, slices/<package>.yaml, and
-without any every package whose file differs is looked at. a comparison across
-ubuntu releases, by their chisel.yaml, needs -x. the "chisel" binary
-is found on PATH, or set CHISEL=/path/to/chisel, and "git" likewise with GIT.
-"version" and "help" as the first argument are --version and --help.`)
+the sides are as for git diff: nothing compares the working tree with the
+index, <a> compares <a> with the working tree, <a>..<b> the two revisions,
+<a>...<b> the merge base of the two with <b>, and --cached the index in place
+of the working tree. --merge-base with no revision is what a pull request
+would change: the working tree from where HEAD parted from the branch of the
+release chisel.yaml is of, ubuntu-26.04 say, found as a local branch, else on
+the remote for canonical/chisel-releases, else fetched.
+
+--release=<name> takes that branch of canonical/chisel-releases instead of a
+checkout, HEAD being its tip: HEAD~1..HEAD is the last change merged. a
+comparison across ubuntu releases, by their chisel.yaml, needs -x.
+
+a package may be given as the path of its file, slices/<package>.yaml, and
+without any every package whose file differs is looked at. "--" before the
+packages says there are no revisions. the "chisel" binary is found on PATH,
+or set CHISEL=/path/to/chisel, and "git" likewise with GIT. "version" and
+"help" as the first argument are --version and --help.`)
 	if _, err := p.AddGroup("flags", "", f); err != nil {
 		panic(err)
 	}
@@ -371,6 +372,13 @@ func splitLists(values []string) []string {
 		}
 	}
 	return out
+}
+
+func first(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return args[0]
 }
 
 // fileVersion returns the version line of a VERSION file: the first line that

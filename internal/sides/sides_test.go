@@ -186,6 +186,46 @@ func TestNotices(t *testing.T) {
 	assert.Len(t, s.Notices, 0)
 }
 
+func TestNoRevisionsAsGitDiff(t *testing.T) {
+	r, _, _, side := history(t)
+
+	// Nothing unstaged: the index and the working tree agree, and that is
+	// said with the ways to what the reader may have meant.
+	s, err := Resolve(context.Background(), r.spec(""))
+	assert.NoError(t, err)
+	assert.Equal(t, s.Base.Kind, Index)
+	assert.Equal(t, s.Head.Kind, Worktree)
+	assert.EqualArrays(t, s.Notices, []string{"nothing unstaged in the release: --cached for what is staged, --merge-base for what the branch changes as a pull request"})
+	s.Remove()
+
+	r.write("slices/bash.yaml", "bash staged\n")
+	r.git("add", "slices/bash.yaml")
+	r.write("slices/bash.yaml", "bash on disk\n")
+
+	// The working tree against the index.
+	s, err = Resolve(context.Background(), r.spec(""))
+	assert.NoError(t, err)
+	assert.Equal(t, read(t, s.Base.Dir, "slices/bash.yaml"), "bash staged\n")
+	assert.Equal(t, read(t, s.Head.Dir, "slices/bash.yaml"), "bash on disk\n")
+	assert.Equal(t, s.Base.Tip, side)
+	assert.Len(t, s.Notices, 0)
+	s.Remove()
+
+	// The index against HEAD.
+	s, err = Resolve(context.Background(), Spec{Release: r.dir, Cached: true, Git: "git"})
+	assert.NoError(t, err)
+	assert.Equal(t, s.Base.Kind, Rev)
+	assert.Equal(t, s.Base.Rev, side)
+	assert.Equal(t, s.Head.Kind, Index)
+	assert.Equal(t, read(t, s.Base.Dir, "slices/bash.yaml"), "bash side\n")
+	assert.Equal(t, read(t, s.Head.Dir, "slices/bash.yaml"), "bash staged\n")
+	s.Remove()
+
+	// --merge-base with no revision needs a release chisel.yaml names.
+	_, err = Resolve(context.Background(), Spec{Release: r.dir, MergeBase: true, Git: "git"})
+	assert.Error(t, err, "--merge-base with no revision, and no release branch to compare with")
+}
+
 func TestNoMergeBase(t *testing.T) {
 	r, _, _, _ := history(t)
 	r.git("switch", "-q", "--orphan", "other")

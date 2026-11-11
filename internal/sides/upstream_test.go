@@ -39,6 +39,13 @@ func named(up *repo, cache, release, revisions string) Spec {
 	return Spec{Release: release, Revisions: revisions, Upstream: up.dir, Cache: cache, Git: "git"}
 }
 
+// pr is --merge-base with no revision: what a pull request would change.
+func pr(up *repo, cache, dir string) Spec {
+	spec := named(up, cache, dir, "")
+	spec.MergeBase = true
+	return spec
+}
+
 func TestReleaseOf(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "chisel.yaml")
@@ -77,8 +84,8 @@ func TestNamedRelease(t *testing.T) {
 	up, a24, r26, t26 := upstreamRepo(t)
 	cache := filepath.Join(t.TempDir(), "cache", "chisel-releases.git")
 
-	// No revisions: the tip and its first parent, with a warning.
-	s, err := Resolve(context.Background(), named(up, cache, "ubuntu-26.04", ""))
+	// The last change merged: HEAD is the branch tip.
+	s, err := Resolve(context.Background(), named(up, cache, "ubuntu-26.04", "HEAD~1..HEAD"))
 	assert.NoError(t, err)
 	assert.Equal(t, s.Base.Rev, r26)
 	assert.Equal(t, s.Head.Kind, Rev)
@@ -87,8 +94,7 @@ func TestNamedRelease(t *testing.T) {
 	assert.Equal(t, read(t, s.Base.Dir, "slices/bash.yaml"), "bash r26\n")
 	assert.Equal(t, read(t, s.Head.Dir, "slices/bash.yaml"), "bash t26\n")
 	assert.Equal(t, s.Base.Release, "ubuntu-26.04")
-	assert.Len(t, s.Warnings, 1)
-	assert.ContainsString(t, s.Warnings[0], "the tip of ubuntu-26.04 is compared with its first parent")
+	assert.Len(t, s.Warnings, 0)
 	assert.ContainsString(t, s.Notices[0], "cloned "+up.dir+" into "+cache)
 	s.Remove()
 
@@ -139,12 +145,13 @@ func TestNamedRelease(t *testing.T) {
 
 	for spec, want := range map[Spec]string{
 		named(up, cache, "ubuntu-99.04", ""):         "ubuntu-99.04 is not a branch of",
+		named(up, cache, "ubuntu-26.04", ""):         "ubuntu-26.04 has no working tree to compare with: give <a>..<b>, HEAD~1..HEAD say",
 		named(up, cache, "not-a-release", "a"):       "is not a directory or a release name like ubuntu-26.04",
 		named(up, cache, "ubuntu-26.04", "nope"):     `"nope" is not a revision of`,
 		named(up, cache, "ubuntu-26.04", "HEAD@{1}"): "keeps no reflog of ubuntu-26.04",
 		named(up, cache, "ubuntu-26.04", "@{1}"):     "keeps no reflog of ubuntu-26.04",
 		{Release: "ubuntu-26.04", Revisions: "HEAD", Cached: true, Upstream: up.dir, Cache: cache, Git: "git"}: "--cached needs a checkout",
-		{Release: "ubuntu-26.04", MergeBase: true, Upstream: up.dir, Cache: cache, Git: "git"}:                 "--merge-base takes the revision",
+		{Release: "ubuntu-26.04", MergeBase: true, Upstream: up.dir, Cache: cache, Git: "git"}:                 "has no working tree",
 		{Release: "ubuntu-26.04", Upstream: up.dir, Git: "git"}:                                                "no place to keep a clone",
 	} {
 		_, err := Resolve(context.Background(), spec)
@@ -172,14 +179,14 @@ func TestBareInACheckout(t *testing.T) {
 	cache := filepath.Join(t.TempDir(), "clone.git")
 
 	// No local branch: the remote's, by the release chisel.yaml is of.
-	s, err := Resolve(context.Background(), named(up, cache, c.dir, ""))
+	s, err := Resolve(context.Background(), pr(up, cache, c.dir))
 	assert.NoError(t, err)
 	assert.Equal(t, s.Base.Ref, "canonical/ubuntu-26.04")
 	assert.Equal(t, s.Base.Rev, t26)
 	assert.Equal(t, s.Head.Kind, Worktree)
 	assert.Equal(t, read(t, s.Head.Dir, "slices/bash.yaml"), "bash on disk\n")
 	assert.Len(t, s.Notices, 2)
-	assert.ContainsString(t, s.Notices[0], "from where HEAD parted from ubuntu-26.04")
+	assert.ContainsString(t, s.Notices[0], "--merge-base with no revision: the files on disk are compared from where HEAD parted from ubuntu-26.04")
 	assert.ContainsString(t, s.Notices[1], "ubuntu-26.04 is not a local branch: using canonical/ubuntu-26.04 ("+t26[:12])
 	assert.Len(t, s.Warnings, 0)
 	s.Remove()
@@ -188,7 +195,7 @@ func TestBareInACheckout(t *testing.T) {
 
 	// A tag of the release's name is not the branch.
 	c.git("tag", "ubuntu-26.04", r26)
-	s, err = Resolve(context.Background(), named(up, cache, c.dir, ""))
+	s, err = Resolve(context.Background(), pr(up, cache, c.dir))
 	assert.NoError(t, err)
 	assert.Equal(t, s.Base.Ref, "canonical/ubuntu-26.04")
 	s.Remove()
@@ -196,7 +203,7 @@ func TestBareInACheckout(t *testing.T) {
 
 	// A local branch behind the remote's is used, with a warning.
 	c.git("branch", "-q", "ubuntu-26.04", r26)
-	s, err = Resolve(context.Background(), named(up, cache, c.dir, ""))
+	s, err = Resolve(context.Background(), pr(up, cache, c.dir))
 	assert.NoError(t, err)
 	assert.Equal(t, s.Base.Ref, "ubuntu-26.04")
 	assert.Equal(t, s.Base.Rev, r26)
@@ -232,7 +239,7 @@ func TestFetchedBesideACheckout(t *testing.T) {
 	c.write("slices/bash.yaml", "bash on disk\n")
 	cache := filepath.Join(t.TempDir(), "clone.git")
 
-	s, err := Resolve(context.Background(), named(up, cache, c.dir, ""))
+	s, err := Resolve(context.Background(), pr(up, cache, c.dir))
 	assert.NoError(t, err)
 	assert.Equal(t, s.Base.Rev, t26)
 	assert.ContainsString(t, s.Notices[1], "cloned "+up.dir)

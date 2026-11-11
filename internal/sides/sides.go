@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,10 +40,10 @@ type Spec struct {
 	// repo, or a release name such as ubuntu-26.04, whose branch of Upstream
 	// is then the checkout and its tip HEAD.
 	Release string
-	// Revisions are <a>, <a>..<b> or <a>...<b>. With none, a checkout's
-	// files are compared from where HEAD parted from the branch of the
-	// release its chisel.yaml is of, and a release name's tip with its first
-	// parent.
+	// Revisions are <a>, <a>..<b> or <a>...<b>. With none, as git diff:
+	// the working tree against the index, or the index against HEAD with
+	// Cached, and with MergeBase the files on disk against where HEAD
+	// parted from the branch of the release chisel.yaml is of.
 	Revisions string
 	MergeBase bool // with a single <a>: compare from its merge base with HEAD
 	Cached    bool // with a single <a>: compare to the index
@@ -134,21 +135,29 @@ func (s *Sides) revisions(ctx context.Context, spec Spec) error {
 	if r.named != "" && spec.Cached {
 		return fmt.Errorf("--cached needs a checkout, and %s is a release name", r.named)
 	}
-	if revs == "" {
-		if r.named != "" {
-			if mergeBase {
-				return errors.New("--merge-base takes the revision to compare from")
-			}
-			revs = "HEAD^1"
-			s.warnf("no revisions given: the tip of %s is compared with its first parent, the last change merged into it. <a>..<b> compares anything else", r.named)
-		} else {
-			name, err := releaseOf(filepath.Join(spec.Release, "chisel.yaml"))
-			if err != nil {
-				return fmt.Errorf("no revisions given, and no release branch to compare with: %w. give <a>", err)
-			}
-			revs, mergeBase, r.branch = name, true, name
-			s.notef("no revisions given: the files on disk are compared from where HEAD parted from %s, the release chisel.yaml is of. --merge-base <ref> picks another branch", name)
+	// With no revisions, as git diff: the working tree against the index,
+	// or with --cached the index against HEAD. --merge-base with none is
+	// what a pull request would change: the files on disk from where HEAD
+	// parted from the branch of the release chisel.yaml is of.
+	switch {
+	case revs != "":
+	case r.named != "":
+		return fmt.Errorf("%s has no working tree to compare with: give <a>..<b>, HEAD~1..HEAD say for the last change merged", r.named)
+	case mergeBase:
+		name, err := releaseOf(filepath.Join(spec.Release, "chisel.yaml"))
+		if err != nil {
+			return fmt.Errorf("--merge-base with no revision, and no release branch to compare with: %w. give <a>", err)
 		}
+		revs, r.branch = name, name
+		what := "the files on disk are"
+		if spec.Cached {
+			what = "the index is"
+		}
+		s.notef("--merge-base with no revision: %s compared from where HEAD parted from %s, the release chisel.yaml is of", what, name)
+	case spec.Cached:
+		revs = "HEAD"
+	default:
+		return s.unstaged(g, prefix, spec.Release)
 	}
 	a, b, dots, err := split(revs)
 	if err != nil {
@@ -232,6 +241,57 @@ func (s *Sides) revisions(ctx context.Context, spec Spec) error {
 		return g.index(prefix, s.Head.Dir)
 	}
 	return copyTree(spec.Release, s.Head.Dir)
+}
+
+// unstaged is what git diff with no revisions compares: the index as the
+// base, the files on disk as the head.
+func (s *Sides) unstaged(g *git, prefix, release string) error {
+	head, err := g.commit("HEAD")
+	if err != nil {
+		return err
+	}
+	s.Base.Kind, s.Base.Tip = Index, head
+	s.Head.Kind, s.Head.Tip = Worktree, head
+	if err := g.index(prefix, s.Base.Dir); err != nil {
+		return err
+	}
+	if err := copyTree(release, s.Head.Dir); err != nil {
+		return err
+	}
+	if same, err := sameTree(s.Base.Dir, s.Head.Dir); err == nil && same {
+		s.notef("nothing unstaged in the release: --cached for what is staged, --merge-base for what the branch changes as a pull request")
+	}
+	return nil
+}
+
+// sameTree reports whether two snapshots hold the same files with the same
+// bytes.
+func sameTree(a, b string) (bool, error) {
+	read := func(root string) (map[string]string, error) {
+		files := map[string]string{}
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			rel, _ := filepath.Rel(root, path)
+			files[rel] = string(data)
+			return nil
+		})
+		return files, err
+	}
+	x, err := read(a)
+	if err != nil {
+		return false, err
+	}
+	y, err := read(b)
+	if err != nil {
+		return false, err
+	}
+	return maps.Equal(x, y), nil
 }
 
 func (s *Sides) notef(format string, args ...any) {
