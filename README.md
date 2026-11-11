@@ -46,7 +46,7 @@ chisel-diff --release ubuntu-26.04 HEAD~1..HEAD  # upstream's last merge, no che
 
 a comparison across ubuntu releases, by the version in each side's `chisel.yaml`, is refused without `-x` / `--x-release`, and with it cuts only the packages or `--slice` named (`--slice=all` is the whole release). some release branches share no history, so with `-x` a missing merge base compares the tips.
 
-without packages, every package whose file differs between the two sides is looked at. a package can be given as the path of its file (`slices/openssl.yaml`), so tab completion works. `--slice` picks slices by name, changed or not, and `--slice=awt:awt-v2` compares slice `awt` at the base with slice `awt-v2` at the head in every package that has both, to see what a replacement slice drops or adds. `--name-status` names the slices and their states and cuts nothing, which takes half a second and no network.
+without packages, every package whose file differs between the two sides is looked at. a package can be given as the path of its file (`slices/openssl.yaml`), so tab completion works. `--slice` picks slices by name, changed or not, and `--slice=awt:awt-v2` compares slice `awt` at the base with slice `awt-v2` at the head in every package that has both, to see what a replacement slice drops or adds. `chisel-diff --slice=awt:awt-v2 HEAD..HEAD` asks it on one tree, so only the two definitions differ. `--name-status` names the slices and their states and cuts nothing, which takes half a second and no network.
 
 `--json` is the same report as one document, with every cut's outcome on both sides and every entry, directories too.
 
