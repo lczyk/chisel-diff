@@ -37,7 +37,9 @@ the two sides are named the way `git diff` names them, by the first argument, an
 
 given | base | head
 ---|---|---
-nothing | the merge base of `HEAD` and the branch of the release `chisel.yaml` is of | the working tree
+nothing | the index | the working tree
+`--cached` | `HEAD` | the index
+`--merge-base` | the merge base of `HEAD` and the branch of the release `chisel.yaml` is of | the working tree
 `A` | `A` | the working tree
 `A..B` | `A` | `B`
 `A...B` | the merge base of `A` and `B` | `B`
@@ -45,7 +47,7 @@ nothing | the merge base of `HEAD` and the branch of the release `chisel.yaml` i
 `--cached A` | `A` | the index
 `--cached --merge-base A` | the merge base of `A` and `HEAD` | the index
 `--no-index <dir> <dir>` | the first dir | the second dir
-`--release=<name>`, nothing | the first parent of the branch tip | the branch tip
+`--release=<name>`, nothing | an error | an error
 `--release=<name> A` | `A` | the branch tip
 
 `--staged` is `--cached`, as in git. `--no-index` takes two release dirs in place of the revisions and runs no git at all, so it works outside a checkout. where it is narrower than git, it is so that the first argument is always the revisions and the exit codes stay the tool's own: `--cached` does not default to `HEAD`, `--no-index` is never implied and takes two directories only, and it does not turn differences into exit 1 as git's does. `--cached` with a range, and `--no-index` with `--cached`, `--merge-base` or `--release`, are usage errors.
@@ -67,13 +69,15 @@ a side with no `slices/` gets an empty one, since chisel wants the directory.
 
 #### no revisions
 
-with no revisions the question is what a pull request of this checkout would change: the files on disk, staged or not, committed or not, against where `HEAD` parted from the release branch. that branch is `ubuntu-<version>`, the version of the `ubuntu` archive in the working tree's `chisel.yaml` (or of every archive, when they agree), looked up as a branch, never a tag: the local branch, else the one of the remote whose url is canonical/chisel-releases, else the clone below. a notice says which, and the remote's says when its tip was committed, since nothing fetches it. `--merge-base <ref>` picks another branch. the first positional is the revisions unless `--` comes before it or it ends in `.yaml`, so `chisel-diff slices/openssl.yaml` and `chisel-diff -- openssl` name a package with no revisions.
+with no revisions it is `git diff`, so nothing surprises: the working tree against the index, what is not staged, or with `--cached` the index against `HEAD`. the working tree is read as chisel reads it, so an untracked package file is in it, where git would leave it out. when the index and the working tree agree a notice names `--cached` and `--merge-base`.
+
+`--merge-base` with no revision answers what a pull request of this checkout would change: the files on disk, staged or not, committed or not, against where `HEAD` parted from the release branch. git wants a commit after `--merge-base`, so this adds a meaning and changes none. that branch is `ubuntu-<version>`, the version of the `ubuntu` archive in the working tree's `chisel.yaml` (or of every archive, when they agree), looked up as a branch, never a tag: the local branch, else the one of the remote whose url is canonical/chisel-releases, else the clone below. a notice says which, and the remote's says when its tip was committed, since nothing fetches it. `--merge-base <ref>` picks another branch. the first positional is the revisions unless `--` comes before it or it ends in `.yaml`, so `chisel-diff slices/openssl.yaml` and `chisel-diff -- openssl` name a package with no revisions.
 
 a local release branch used as a base is checked against the remote's: behind it, ahead of it or parted from it is a warning, since a stale base reads what landed since as part of the change.
 
 #### release names
 
-`--release` is a checkout, or a release name such as `ubuntu-26.04` as chisel and chisel-coverage take it. a name is a branch of canonical/chisel-releases, and a tarball of it, which chisel itself fetches, has no history for revisions. so canonical/chisel-releases is kept as a bare clone of its branches in `$XDG_CACHE_HOME/chisel-diff/chisel-releases.git` (else `~/.cache/...`), cloned once (beside it, then moved in whole) and fetched each run. a fetch that fails leaves it as it was, with a warning. the branch tip is then `HEAD`, and `@` too, and is the head side where a checkout's would be the working tree. `--cached` is an error, and so is a reflog of `HEAD`, which the clone does not keep. with no revisions the tip is compared with its first parent, the last change merged, with a warning, since that is rarely the question.
+`--release` is a checkout, or a release name such as `ubuntu-26.04` as chisel and chisel-coverage take it. a name is a branch of canonical/chisel-releases, and a tarball of it, which chisel itself fetches, has no history for revisions. so canonical/chisel-releases is kept as a bare clone of its branches in `$XDG_CACHE_HOME/chisel-diff/chisel-releases.git` (else `~/.cache/...`), cloned once (beside it, then moved in whole) and fetched each run. a fetch that fails leaves it as it was, with a warning. the branch tip is then `HEAD`, and `@` too, and is the head side where a checkout's would be the working tree. `--cached` is an error, and so is a reflog of `HEAD`, which the clone does not keep. with no revisions it is an error, as `git diff` is in a repo with no working tree, and the error names `HEAD~1..HEAD`, the last change merged.
 
 in a checkout, a release name that is no revision of it is looked for in the same order as above, the remote's branch and then the clone. the clone is not fetched into the checkout: git is run with the clone's objects as `GIT_ALTERNATE_OBJECT_DIRECTORIES`, added to any inherited ones, so the checkout gains no ref and no object.
 
@@ -378,7 +382,8 @@ step 1 waits for `pkg/pool`: the PR of `design-pkg.md` and its `pkg/` tag come f
 ## decided
 
 - the sides are named as `git diff` names them, with nothing bent: a bare `A` is the tip of `A` against the working tree and `A...` ends at `HEAD`. this replaced `--base`, `--head` and `--tip`.
-- with no revisions it departs from `git diff` on purpose: the files on disk against the merge base with the release branch, what a pull request would change. a release name compares its tip with its first parent, with a warning. the general rule: work, and warn where the circumstances are unusual and likely a mistake.
+- with no revisions it is `git diff`: the working tree against the index. what a pull request would change is `--merge-base` with no revision, which git does not have. a release name with no revisions is an error. a first take, the pull request with no arguments, was dropped since it surprised.
+- the general rule: work, and warn where the circumstances are unusual and likely a mistake.
 - `--release` takes a release name as in chisel-coverage, from a bare clone of canonical/chisel-releases kept in the cache, so two shas of upstream can be compared without a checkout. a release branch a checkout lacks comes from its remote or that clone, never fetched into the checkout. no `--onto`: `--merge-base <ref>` already picks the branch.
 - a comparison across releases needs `-x` and cuts only what is named. more cases are likely to come up there.
 - a `chisel.yaml` change with no package named compares nothing and exits 0 with a notice. the tool compares slices.
