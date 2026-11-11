@@ -206,7 +206,23 @@ func TestRealChisel(t *testing.T) {
 		got, res := compare("demo_config")
 		clean(res)
 		// /etc/demo is on both sides, as another kind of thing.
-		assert.Equal(t, got, "-/etc/demo/conf")
+		assert.Equal(t, got, "-/etc/demo/conf ~/etc/demo/")
+		c := res.Slices[0].Cuts[0]
+		assert.Equal(t, c.Findings[1].Head.String(), "symlink to /usr/lib/demo")
+	})
+
+	t.Run("a file mode and a symlink target are changed entries", func(t *testing.T) {
+		f.reset()
+		f.sides("demo",
+			"slices:\n\tbins:\n\t\tcontents:\n\t\t\t/usr/bin/run: {text: x, mode: 0700}\n\t\t\t/usr/bin/sh: {symlink: demo}\n\t\t\t/usr/bin/demo:\n",
+			"slices:\n\tbins:\n\t\tcontents:\n\t\t\t/usr/bin/run: {text: x, mode: 0755}\n\t\t\t/usr/bin/sh: {symlink: tool}\n\t\t\t/usr/bin/demo:\n\t\t\t/usr/bin/tool:\n")
+		got, res := compare("demo_bins")
+		clean(res)
+		assert.Equal(t, got, "~/usr/bin/run ~/usr/bin/sh +/usr/bin/tool")
+		c := res.Slices[0].Cuts[0]
+		assert.Equal(t, c.Findings[0].Base.String()+" -> "+c.Findings[0].Head.String(), "file 0700 -> file 0755")
+		assert.Equal(t, c.Findings[1].Base.String()+" -> "+c.Findings[1].Head.String(), "symlink to demo -> symlink to tool")
+		assert.That(t, !res.Missing())
 	})
 
 	t.Run("a package no archive has is not available", func(t *testing.T) {

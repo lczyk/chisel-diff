@@ -3,6 +3,7 @@
 package listing
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -26,6 +27,30 @@ type Entry struct {
 	Kind   Kind
 	Mode   fs.FileMode // of a regular file: the permission, setuid, setgid and sticky bits
 	Target string      // of a symlink, as written
+}
+
+// String describes an entry as the report shows it: "file <mode>" with the
+// mode as four octal digits, "dir", "symlink to <target>" or "other". A
+// directory's mode is left out, since chisel does not make it the same from
+// one cut to the next (canonical/chisel#353).
+func (e Entry) String() string {
+	switch e.Kind {
+	case File:
+		m := uint32(e.Mode.Perm())
+		if e.Mode&fs.ModeSetuid != 0 {
+			m |= 04000
+		}
+		if e.Mode&fs.ModeSetgid != 0 {
+			m |= 02000
+		}
+		if e.Mode&fs.ModeSticky != 0 {
+			m |= 01000
+		}
+		return fmt.Sprintf("file %04o", m)
+	case Symlink:
+		return "symlink to " + e.Target
+	}
+	return string(e.Kind)
 }
 
 // Walk lists every entry under root, sorted by path. root itself is not

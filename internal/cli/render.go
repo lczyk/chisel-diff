@@ -9,6 +9,7 @@ import (
 	"github.com/lczyk/chisel-coverage/pkg/fold"
 
 	"github.com/lczyk/chisel-diff/internal/diff"
+	"github.com/lczyk/chisel-diff/internal/listing"
 )
 
 // renderText writes the report: nothing indented and no blank lines. A slice
@@ -16,7 +17,8 @@ import (
 // header "<package> <version> <slice> [arches]" and under it "-<path>" for
 // an entry lost and "+<path>" for one gained, so grep '^-' is the list of
 // what went missing. A slice with nothing to show under a header is one
-// line, with what is to be said of it after a colon. "!<path>: no content"
+// line, with what is to be said of it after a colon. "~<path>: <base> ->
+// <head>" is an entry on both sides that changed, "!<path>: no content"
 // is an entry deleted from the base because the archive no longer has it. With group unset every
 // architecture is a block of its own with its real paths.
 func renderText(w io.Writer, res *diff.Result, group bool) {
@@ -129,7 +131,7 @@ func cutItems(c diff.Cut) []fold.Item {
 		if f.Dir {
 			path += "/"
 		}
-		out = append(out, fold.Item{Key: fold.Normalise(path, c.Arch), Tag: string(f.Change), Raw: path})
+		out = append(out, item(f, c.Arch))
 	}
 	return out
 }
@@ -159,28 +161,53 @@ func groups(arches []string, items [][]fold.Item, group bool) []fold.Group {
 // lines are a group's entries as the report prints them: the lost ones,
 // then the gained ones, each sorted by path.
 func lines(g fold.Group) []string {
-	var lost, gained, pruned []string
+	var lost, gained, changed, pruned []string
 	for _, e := range g.Entries {
-		switch diff.Change(e.Tag) {
+		switch change, what, _ := strings.Cut(e.Tag, " "); diff.Change(change) {
 		case diff.Lost:
 			lost = append(lost, "-"+e.Shown())
 		case diff.Gained:
 			gained = append(gained, "+"+e.Shown())
+		case diff.Changed:
+			changed = append(changed, "~"+e.Shown()+": "+what)
 		default:
 			pruned = append(pruned, "!"+e.Shown()+": no content")
 		}
 	}
-	sort.Strings(lost)
-	sort.Strings(gained)
-	sort.Strings(pruned)
-	return append(append(lost, gained...), pruned...)
+	for _, l := range [][]string{lost, gained, changed, pruned} {
+		sort.Strings(l)
+	}
+	return append(append(append(lost, gained...), changed...), pruned...)
+}
+
+// item is a finding as fold takes it. The tag is the change, and for a
+// changed entry the two descriptions, so that only architectures where the
+// entry changed the same way fold; a symlink target is normalised like a
+// path.
+func item(f diff.Finding, arch string) fold.Item {
+	path := f.Path
+	if f.Dir {
+		path += "/"
+	}
+	it := fold.Item{Key: fold.Normalise(path, arch), Tag: string(f.Change), Raw: path}
+	if f.Change == diff.Changed {
+		describe := func(e listing.Entry, norm bool) string {
+			if norm && e.Kind == listing.Symlink {
+				e.Target = fold.Normalise(e.Target, arch)
+			}
+			return e.String()
+		}
+		it.Tag += " " + describe(f.Base, true) + " -> " + describe(f.Head, true)
+		it.RawTag = string(f.Change) + " " + describe(f.Base, false) + " -> " + describe(f.Head, false)
+	}
+	return it
 }
 
 // summary is the line -v ends with: slices are counted once each whatever
 // the number of architectures, one that differs on any of them differs, and
 // entries are counted per architecture before any directory is left out.
 func summary(res *diff.Result) string {
-	compared, differ, lost, gained := 0, 0, 0, 0
+	compared, differ, lost, gained, changed := 0, 0, 0, 0, 0
 	for _, s := range res.Slices {
 		was, differs := false, false
 		for _, c := range s.Cuts {
@@ -193,6 +220,8 @@ func summary(res *diff.Result) string {
 					lost++
 				case diff.Gained:
 					gained++
+				case diff.Changed:
+					changed++
 				default:
 					continue
 				}
@@ -206,5 +235,5 @@ func summary(res *diff.Result) string {
 			differ++
 		}
 	}
-	return fmt.Sprintf("%d slices compared, %d differ, %d lost, %d gained", compared, differ, lost, gained)
+	return fmt.Sprintf("%d slices compared, %d differ, %d lost, %d gained, %d changed", compared, differ, lost, gained, changed)
 }

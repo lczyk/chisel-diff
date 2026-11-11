@@ -56,7 +56,7 @@ v=1.0
 [ -f "$release/fake/version/$pkg" ] && v="$(cat "$release/fake/version/$pkg")"
 echo "Fetching pool/main/x/$pkg/${pkg}_${v}_$arch.deb..." >&2
 for t in "$release/fake/tree/$slice/all" "$release/fake/tree/$slice/$arch"; do
-  if [ -d "$t" ]; then cp -R "$t/." "$root/"; fi
+  if [ -d "$t" ]; then cp -Rp "$t/." "$root/"; fi
 done
 exit 0
 `
@@ -142,7 +142,7 @@ func (f *fixture) cuts() []string {
 func findings(c Cut) string {
 	var out []string
 	for _, fd := range c.Findings {
-		sign := map[Change]string{Lost: "-", Gained: "+", NoContent: "!"}[fd.Change]
+		sign := map[Change]string{Lost: "-", Gained: "+", NoContent: "!", Changed: "~"}[fd.Change]
 		path := fd.Path
 		if fd.Dir {
 			path += "/"
@@ -173,7 +173,8 @@ func TestLostAndGained(t *testing.T) {
 	f.write(f.base, "fake/tree/bash_bins/arm64/usr/lib/aarch64/b.so", "x")
 	f.write(f.head, "fake/tree/bash_bins/all/usr/bin/bash", "x")
 	f.write(f.head, "fake/tree/bash_bins/all/usr/libexec/bash/", "")
-	// A file that became a directory is on both sides: neither lost nor gained.
+	// A file that became a directory is on both sides: changed, neither lost
+	// nor gained.
 	f.write(f.base, "fake/tree/bash_bins/all/usr/thing", "x")
 	f.write(f.head, "fake/tree/bash_bins/all/usr/thing/inner", "x")
 
@@ -188,9 +189,9 @@ func TestLostAndGained(t *testing.T) {
 	assert.Equal(t, amd64.Base.Version, "1.0")
 	assert.Equal(t, amd64.Base.Entries, 7)
 	assert.Equal(t, amd64.Head.Entries, 7)
-	assert.Equal(t, findings(amd64), "-/etc/ -/etc/bash.d/ -/usr/bin/rbash +/usr/libexec/ +/usr/libexec/bash/ +/usr/thing/inner")
+	assert.Equal(t, findings(amd64), "-/etc/ -/etc/bash.d/ -/usr/bin/rbash +/usr/libexec/ +/usr/libexec/bash/ ~/usr/thing +/usr/thing/inner")
 	assert.Equal(t, arm64.Arch, "arm64")
-	assert.Equal(t, findings(arm64), "-/etc/ -/etc/bash.d/ -/usr/bin/rbash -/usr/lib/ -/usr/lib/aarch64/ -/usr/lib/aarch64/b.so +/usr/libexec/ +/usr/libexec/bash/ +/usr/thing/inner")
+	assert.Equal(t, findings(arm64), "-/etc/ -/etc/bash.d/ -/usr/bin/rbash -/usr/lib/ -/usr/lib/aarch64/ -/usr/lib/aarch64/b.so +/usr/libexec/ +/usr/libexec/bash/ ~/usr/thing +/usr/thing/inner")
 	assert.That(t, amd64.Findings[0].Dir && !amd64.Findings[2].Dir)
 	assert.That(t, res.Missing())
 
@@ -200,6 +201,45 @@ func TestLostAndGained(t *testing.T) {
 	for _, c := range cuts[:2] {
 		assert.That(t, strings.HasPrefix(c, "amd64 bash_bins "), c)
 	}
+}
+
+func TestChangedEntries(t *testing.T) {
+	f := setup(t)
+	f.pkg(f.base, "bash", "bins")
+	f.pkg(f.head, "bash", "bins")
+	for dir, files := range map[string]map[string]string{
+		f.base: {"md5sum": "file", "sh": "link:bash", "su": "mode:4755", "same": "file", "etc": "dir"},
+		f.head: {"md5sum": "link:../libexec/md5sum", "sh": "link:dash", "su": "mode:0755", "same": "file", "etc": "dir"},
+	} {
+		for name, what := range files {
+			path := filepath.Join(dir, "fake", "tree", "bash_bins", "all", "usr", "bin", name)
+			assert.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+			switch {
+			case what == "dir":
+				// A directory's mode is not compared.
+				assert.NoError(t, os.MkdirAll(path, 0700))
+				if dir == f.head {
+					assert.NoError(t, os.Chmod(path, 0755))
+				}
+			case strings.HasPrefix(what, "link:"):
+				assert.NoError(t, os.Symlink(strings.TrimPrefix(what, "link:"), path))
+			default:
+				assert.NoError(t, os.WriteFile(path, []byte("x"), 0755))
+				if what == "mode:4755" {
+					assert.NoError(t, os.Chmod(path, 0755|os.ModeSetuid))
+				}
+			}
+		}
+	}
+	res := f.run([]string{"amd64"}, nil, nil, Options{OneArchive: true})
+	c := res.Slices[0].Cuts[0]
+	assert.Equal(t, findings(c), "~/usr/bin/md5sum ~/usr/bin/sh ~/usr/bin/su")
+	su := c.Findings[2]
+	assert.Equal(t, su.Base.String(), "file 4755")
+	assert.Equal(t, su.Head.String(), "file 0755")
+	assert.Equal(t, c.Findings[0].Head.String(), "symlink to ../libexec/md5sum")
+	// Changed entries never fail the check.
+	assert.That(t, !res.Missing())
 }
 
 func TestNothingLostIsNotMissing(t *testing.T) {

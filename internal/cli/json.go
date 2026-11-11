@@ -10,6 +10,7 @@ import (
 
 	"github.com/lczyk/chisel-diff/internal/changes"
 	"github.com/lczyk/chisel-diff/internal/diff"
+	"github.com/lczyk/chisel-diff/internal/listing"
 	"github.com/lczyk/chisel-diff/internal/sides"
 )
 
@@ -78,6 +79,24 @@ type jsonFinding struct {
 	Change diff.Change       `json:"change"`
 	Arches []string          `json:"arches"`
 	Raw    map[string]string `json:"raw,omitempty"`
+	// Base and Head are the two sides of a changed entry, as the first of
+	// the arches has them.
+	Base *jsonEntry `json:"base,omitempty"`
+	Head *jsonEntry `json:"head,omitempty"`
+}
+
+type jsonEntry struct {
+	Kind   listing.Kind `json:"kind"`
+	Mode   string       `json:"mode,omitempty"`
+	Target string       `json:"target,omitempty"`
+}
+
+func entry(e listing.Entry) *jsonEntry {
+	j := &jsonEntry{Kind: e.Kind, Target: e.Target}
+	if e.Kind == listing.File {
+		j.Mode = strings.TrimPrefix(e.String(), "file ")
+	}
+	return j
 }
 
 func ptr(s string) *string {
@@ -111,22 +130,26 @@ func renderJSON(w io.Writer, run jsonRun, plan *changes.Result, slices []diff.Sl
 		js := jsonSlice{Name: s.Name, State: s.State, Forced: s.State != changes.Changed && len(s.Cuts) > 0, Cuts: []jsonCut{}, Findings: []jsonFinding{}}
 		var arches []string
 		var items [][]fold.Item
+		byRaw := map[string]diff.Finding{} // arch and raw path -> the finding
 		for _, c := range s.Cuts {
 			js.Cuts = append(js.Cuts, jsonCut{Arch: c.Arch, Outcome: c.Outcome, Base: cutSide(c.Base), Head: cutSide(c.Head)})
 			arches = append(arches, c.Arch)
 			var its []fold.Item
 			for _, f := range c.Findings {
-				path := f.Path
-				if f.Dir {
-					path += "/"
-				}
-				its = append(its, fold.Item{Key: fold.Normalise(path, c.Arch), Tag: string(f.Change), Raw: path})
+				it := item(f, c.Arch)
+				its = append(its, it)
+				byRaw[c.Arch+"\x00"+it.Raw] = f
 			}
 			items = append(items, its)
 		}
 		for _, g := range groups(arches, items, group) {
 			for _, e := range g.Entries {
-				f := jsonFinding{Path: e.Shown(), Change: diff.Change(e.Tag), Arches: g.Arches}
+				change, _, _ := strings.Cut(e.Tag, " ")
+				f := jsonFinding{Path: e.Shown(), Change: diff.Change(change), Arches: g.Arches}
+				if f.Change == diff.Changed {
+					first := byRaw[g.Arches[0]+"\x00"+e.Raw[0]]
+					f.Base, f.Head = entry(first.Base), entry(first.Head)
+				}
 				if f.Path != e.Raw[0] {
 					f.Raw = map[string]string{}
 					for i, arch := range g.Arches {

@@ -79,13 +79,19 @@ const (
 	// NoContent is an entry deleted from the base because the archive no
 	// longer has what it names. It is neither lost nor gained.
 	NoContent Change = "no-content"
+	// Changed is a path on both sides that is another kind of thing, a
+	// regular file with another mode, or a symlink to another target. It is
+	// reported and never fails the check.
+	Changed Change = "changed"
 )
 
 // Finding is one entry that is on one side only.
 type Finding struct {
 	Path   string // with no trailing slash
-	Dir    bool
+	Dir    bool   // a directory on the side it is reported for, the base's for a changed one
 	Change Change
+	// Base and Head are the two sides of a changed entry.
+	Base, Head listing.Entry
 }
 
 // Cut is one slice on one architecture.
@@ -366,8 +372,8 @@ func (r *run) settle(s *Slice, c *Cut) {
 }
 
 // compare matches the entries of two rootfs trees by path. An entry at the
-// base only is lost, one at the head only gained. A path on both sides is
-// neither, whatever became of its kind.
+// base only is lost, one at the head only gained, one on both sides that is
+// described differently changed.
 func compare(baseEntries, headEntries []listing.Entry) []Finding {
 	at := func(entries []listing.Entry) map[string]listing.Entry {
 		m := make(map[string]listing.Entry, len(entries))
@@ -384,8 +390,12 @@ func compare(baseEntries, headEntries []listing.Entry) []Finding {
 		}
 	}
 	for _, e := range headEntries {
-		if _, ok := b[e.Path]; !ok {
+		was, ok := b[e.Path]
+		switch {
+		case !ok:
 			out = append(out, Finding{Path: e.Path, Dir: e.Kind == listing.Dir, Change: Gained})
+		case was.String() != e.String():
+			out = append(out, Finding{Path: e.Path, Dir: was.Kind == listing.Dir, Change: Changed, Base: was, Head: e})
 		}
 	}
 	return out

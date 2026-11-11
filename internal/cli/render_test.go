@@ -2,12 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"io/fs"
 	"testing"
 
 	"github.com/lczyk/assert"
 
 	"github.com/lczyk/chisel-diff/internal/changes"
 	"github.com/lczyk/chisel-diff/internal/diff"
+	"github.com/lczyk/chisel-diff/internal/listing"
 )
 
 func compared(arch, version string, findings ...diff.Finding) diff.Cut {
@@ -98,7 +100,40 @@ bash 5.2-1 bins [arm64]
 bash [riscv64]: not available
 `)
 
-	assert.Equal(t, summary(res), "3 slices compared, 2 differ, 7 lost, 5 gained")
+	assert.Equal(t, summary(res), "3 slices compared, 2 differ, 7 lost, 5 gained, 0 changed")
+}
+
+func TestRenderChanged(t *testing.T) {
+	file := func(mode fs.FileMode) listing.Entry {
+		return listing.Entry{Kind: listing.File, Mode: mode}
+	}
+	link := func(target string) listing.Entry { return listing.Entry{Kind: listing.Symlink, Target: target} }
+	changed := func(path string, dir bool, b, h listing.Entry) diff.Finding {
+		return diff.Finding{Path: path, Dir: dir, Change: diff.Changed, Base: b, Head: h}
+	}
+	res := &diff.Result{Slices: []diff.Slice{sl("coreutils", "bins", changes.Changed,
+		compared("amd64", "9.4", lost("/usr/bin/basename"), changed("/usr/bin/su", false, file(0755|fs.ModeSetuid), file(0755)),
+			changed("/var/run", true, listing.Entry{Kind: listing.Dir}, link("/run")),
+			changed("/usr/bin/md5sum", false, file(0755), link("../lib/x86_64-linux-gnu/md5sum"))),
+		compared("arm64", "9.4", lost("/usr/bin/basename"), changed("/usr/bin/su", false, file(0755|fs.ModeSetuid), file(0755)),
+			changed("/var/run", true, listing.Entry{Kind: listing.Dir}, link("/run")),
+			changed("/usr/bin/md5sum", false, file(0755), link("../lib/aarch64-linux-gnu/md5sum"))),
+	)}}
+	var out bytes.Buffer
+	renderText(&out, res, true)
+	// A symlink target that names the architecture folds like a path.
+	assert.Equal(t, out.String(), `coreutils 9.4 bins [amd64, arm64]
+-/usr/bin/basename
+~/usr/bin/md5sum: file 0755 -> symlink to ../lib/<arch>-linux-<gnu>/md5sum
+~/usr/bin/su: file 4755 -> file 0755
+~/var/run/: dir -> symlink to /run
+`)
+	assert.Equal(t, summary(res), "1 slices compared, 1 differ, 2 lost, 0 gained, 6 changed")
+
+	out.Reset()
+	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, res.Slices[:1], true))
+	assert.ContainsString(t, out.String(), `{"path":"/usr/bin/su","change":"changed","arches":["amd64","arm64"],"base":{"kind":"file","mode":"4755"},"head":{"kind":"file","mode":"0755"}}`)
+	assert.ContainsString(t, out.String(), `{"path":"/var/run/","change":"changed","arches":["amd64","arm64"],"base":{"kind":"dir"},"head":{"kind":"symlink","target":"/run"}}`)
 }
 
 func TestRenderJSON(t *testing.T) {
