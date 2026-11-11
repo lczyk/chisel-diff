@@ -97,7 +97,7 @@ func drawNode(n *tnode, prefix string, last, top bool, st style, out *[]string) 
 			text += "/"
 		}
 		text += e.tail()
-		*out = append(*out, lead+st.paint(e.sign, text))
+		*out = append(*out, lead+st.paint(e.sign, text)+e.origin())
 	}
 	drawKids(n, prefix+pad, false, st, out)
 }

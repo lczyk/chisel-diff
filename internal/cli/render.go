@@ -74,7 +74,7 @@ func renderText(w io.Writer, res *diff.Result, group, tree bool, from string, st
 				continue
 			}
 			for _, e := range entries(g, rawTags) {
-				fmt.Fprintln(w, st.line(e.flat()))
+				fmt.Fprintln(w, st.line(e.flat())+e.origin())
 			}
 		}
 		for _, n := range order {
@@ -226,21 +226,26 @@ type rline struct {
 	from string
 }
 
-// flat is the entry as the report prints it, a line of its own.
+// flat is the entry as the report prints it, a line of its own, but for
+// what it comes from, which is left plain after the coloured entry.
 func (e rline) flat() string {
 	return string(e.sign) + e.path + e.tail()
 }
 
-// tail is what follows an entry's path, in the flat report and the tree.
+// tail is what follows an entry's path but for what it comes from.
 func (e rline) tail() string {
-	s := ""
-	if e.desc != "" {
-		s += ": " + e.desc
+	if e.desc == "" {
+		return ""
 	}
-	if e.from != "" {
-		s += " (" + e.from + ")"
+	return ": " + e.desc
+}
+
+// origin is what the entry comes from, in brackets after it; "" for none.
+func (e rline) origin() string {
+	if e.from == "" {
+		return ""
 	}
-	return s
+	return " (" + e.from + ")"
 }
 
 // entries are a group's entries as the report prints them: lost, gained,

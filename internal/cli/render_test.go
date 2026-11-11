@@ -369,6 +369,14 @@ func TestRenderOrigins(t *testing.T) {
 	renderText(&out, res, true, false, "", style{})
 	assert.Equal(t, out.String(), "x_s 1 [amd64, arm64, s390x]\n-/usr/lib/<arch>-linux-<gnu>/a\n")
 
+	// What an entry comes from is not in its colour, flat or in the tree.
+	out.Reset()
+	renderText(&out, res, true, false, "packages", colours)
+	assert.ContainsString(t, out.String(), "\x1b[31m-/usr/lib/aarch64-linux-gnu/a\x1b[0m (q)\n")
+	out.Reset()
+	renderText(&out, res, true, true, "packages", colours)
+	assert.ContainsString(t, out.String(), "\x1b[31m-/usr/lib/aarch64-linux-gnu/a\x1b[0m (q)\n")
+
 	out.Reset()
 	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, res.Slices, true, true))
 	assert.ContainsString(t, out.String(), `"arches":["amd64","s390x"],"raw":{"amd64":"/usr/lib/x86_64-linux-gnu/a","s390x":"/usr/lib/s390x-linux-gnu/a"},"from":{"base":["p_libs"]}`)
