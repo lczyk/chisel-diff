@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"io/fs"
+	"strings"
 	"testing"
 
 	"github.com/lczyk/assert"
@@ -54,7 +55,7 @@ func TestRenderText(t *testing.T) {
 		),
 	}}
 	var out bytes.Buffer
-	renderText(&out, res, true, style{})
+	renderText(&out, res, true, false, style{})
 	assert.Equal(t, out.String(), `bash_bins 5.2-1 [amd64, arm64]
 -/etc/bash/rc
 -/usr/lib/<arch>-linux-<gnu>/b.so
@@ -80,12 +81,12 @@ ruby_libs [s390x]: error
 	renderText(&out, &diff.Result{Slices: []diff.Slice{
 		sl("pro", "one", changes.Changed, diff.Cut{Arch: "amd64", Outcome: diff.Unavailable, Base: pro, Head: pro}),
 		sl("pro", "two", changes.Changed, diff.Cut{Arch: "amd64", Outcome: diff.Unavailable, Base: skipped, Head: skipped}),
-	}}, true, style{})
+	}}, true, false, style{})
 	assert.Equal(t, out.String(), "pro [amd64]: not available (skipped archives: esm-apps)\n")
 
 	// Ungrouped: a block per architecture with its real paths.
 	out.Reset()
-	renderText(&out, &diff.Result{Slices: res.Slices[:1]}, false, style{})
+	renderText(&out, &diff.Result{Slices: res.Slices[:1]}, false, false, style{})
 	assert.Equal(t, out.String(), `bash_bins 5.2-1 [amd64]
 -/etc/bash/rc
 -/usr/lib/x86_64-linux-gnu/b.so
@@ -130,7 +131,7 @@ func TestRenderChanged(t *testing.T) {
 			changed("/usr/bin/md5sum", false, file(0755), link("../lib/aarch64-linux-gnu/md5sum"))),
 	)}}
 	var out bytes.Buffer
-	renderText(&out, res, true, style{})
+	renderText(&out, res, true, false, style{})
 	// A symlink target that names the architecture folds like a path.
 	assert.Equal(t, out.String(), `coreutils_bins 9.4 [amd64, arm64]
 -/usr/bin/basename
@@ -147,7 +148,7 @@ func TestRenderChanged(t *testing.T) {
 		compared("amd64", "1", changed("/a-foo", false, file(0644), file(0755)), changed("/a", false, file(0644), file(0755)),
 			changed("/l", false, link("/usr/lib/x86_64-linux-gnu/x"), link("b -> symlink to c"))),
 		compared("arm64", "1", changed("/l", false, link("/usr/lib/aarch64-linux-gnu/x -> symlink to b"), link("c"))),
-	)}}, true, style{})
+	)}}, true, false, style{})
 	assert.Equal(t, out.String(), `x_bins 1 [amd64]
 ~/a: file 0644 -> file 0755
 ~/a-foo: file 0644 -> file 0755
@@ -162,7 +163,7 @@ x_bins 1 [arm64]
 	renderText(&out, &diff.Result{Slices: []diff.Slice{sl("apparmor", "profiles", changes.Changed, diff.Cut{
 		Arch: "amd64", Outcome: diff.HeadNotAvailable, Findings: []diff.Finding{{Path: "/etc/apparmor.d/busybox", Change: diff.NoContent}},
 		Base: diff.Side{Status: diff.WasCut, Version: "4.0", Pruned: []string{"/etc/apparmor.d/busybox"}}, Head: diff.Side{Status: diff.NotAvailable, Missing: "apparmor"},
-	})}}, true, style{})
+	})}}, true, false, style{})
 	assert.Equal(t, out.String(), "apparmor_profiles 4.0 [amd64]\n!/etc/apparmor.d/busybox: no content\napparmor_profiles [amd64]: head not available\n")
 
 	out.Reset()
@@ -175,7 +176,7 @@ func TestRenderColoured(t *testing.T) {
 	res := &diff.Result{Slices: []diff.Slice{sl("bash", "bins", changes.Changed,
 		compared("amd64", "5.2", lost("/a"), gained("/b"), diff.Finding{Path: "/c", Change: diff.NoContent}))}}
 	var out bytes.Buffer
-	renderText(&out, res, true, colours)
+	renderText(&out, res, true, false, colours)
 	assert.Equal(t, out.String(), "\x1b[1;34mbash_bins\x1b[0m 5.2 [amd64]\n\x1b[31m-/a\x1b[0m\n\x1b[32m+/b\x1b[0m\n\x1b[33m!/c: no content\x1b[0m\n")
 	assert.Equal(t, summary(res, style{}), "1/1 slice differs, 1 path gained(+), 1 path lost(-), 0 changed(~), 1 no content(!)")
 	// Not a terminal: no colour.
@@ -219,7 +220,7 @@ func TestRenderPair(t *testing.T) {
 	other := sl("old", "awt", changes.Changed, compared("amd64", "1"))
 	other.HeadPackage, other.HeadName = "jdk", "awt-core"
 	var out bytes.Buffer
-	renderText(&out, &diff.Result{Slices: []diff.Slice{s, other}}, true, style{})
+	renderText(&out, &diff.Result{Slices: []diff.Slice{s, other}}, true, false, style{})
 	assert.Equal(t, out.String(), "jdk_awt:awt-core 17.0 [amd64]\n-/b\n+/c\n")
 
 	// Not available on both sides: told under the pair's name, not as its
@@ -228,10 +229,91 @@ func TestRenderPair(t *testing.T) {
 		Base: diff.Side{Status: diff.NotAvailable, Missing: "old"}, Head: diff.Side{Status: diff.NotAvailable, Missing: "old"}})
 	gone.HeadPackage, gone.HeadName = "new", "b"
 	out.Reset()
-	renderText(&out, &diff.Result{Slices: []diff.Slice{gone}}, true, style{})
+	renderText(&out, &diff.Result{Slices: []diff.Slice{gone}}, true, false, style{})
 	assert.Equal(t, out.String(), "old_a:new_b [amd64]: not available\n")
 
 	out.Reset()
 	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, []diff.Slice{s}, true))
 	assert.ContainsString(t, out.String(), `"name":"awt","state":"changed","forced":true,"head-package":"jdk","head-slice":"awt-core"`)
+}
+
+// boxes spells the tree glyphs in ascii in a test's expected text: "T- ",
+// "L- " and "|  " for the three the tree draws.
+func boxes(s string) string {
+	return strings.NewReplacer("T- ", "\u251c\u2500 ", "L- ", "\u2514\u2500 ", "|  ", "\u2502  ").Replace(s)
+}
+
+func TestRenderTree(t *testing.T) {
+	changed := func(path string, isDir bool, b, h listing.Entry) diff.Finding {
+		return diff.Finding{Path: path, Dir: isDir, Change: diff.Changed, Base: b, Head: h}
+	}
+	res := &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed, compared("amd64", "1",
+		diff.Finding{Path: "/etc/x", Change: diff.NoContent},
+		gained("/usr/bin/new"),
+		changed("/usr/bin/su", false, listing.Entry{Kind: listing.File, Mode: fs.ModeSetuid | 0755}, listing.Entry{Kind: listing.File, Mode: 0755}),
+		lost("/usr/lib/libA.so.1"),
+		lost("/usr/lib/libB.so.1"),
+		lost("/usr/share/doc/liba/copyright"),
+		lost("/usr/share/doc/libb/copyright"),
+		// A directory that became a symlink, what was under it lost: an
+		// entry with entries under it, which stops the fold.
+		changed("/var/run", true, listing.Entry{Kind: listing.Dir}, listing.Entry{Kind: listing.Symlink, Target: "/run"}),
+		lost("/var/run/x"),
+	))}}
+	var out bytes.Buffer
+	renderText(&out, res, true, true, style{})
+	assert.Equal(t, out.String(), boxes(`x_s 1 [amd64]
+! /etc/x: no content
+  /usr/
+  T- bin/
++ |  T- new
+~ |  L- su: file 4755 -> file 0755
+  T- lib/
+- |  T- libA.so.1
+- |  L- libB.so.1
+  L- share/doc/
+-    T- liba/copyright
+-    L- libb/copyright
+~ /var/run/: dir -> symlink to /run
+- L- x
+`))
+
+	// The tree holds the flat report's entries, one line each.
+	var flat bytes.Buffer
+	renderText(&flat, res, true, false, style{})
+	signed := func(s string) int {
+		n := 0
+		for _, l := range strings.Split(s, "\n") {
+			if l != "" && strings.ContainsRune("-+~!", rune(l[0])) {
+				n++
+			}
+		}
+		return n
+	}
+	assert.Equal(t, signed(out.String()), signed(flat.String()))
+
+	// Arches that agree fold first, so a path that names the arch is one
+	// line of the tree, and with --no-group each arch is a tree of its own
+	// with its real paths.
+	two := map[string]diff.Finding{"amd64": lost("/usr/lib/x86_64-linux-gnu/a"), "arm64": lost("/usr/lib/aarch64-linux-gnu/a")}
+	res = &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed, compared("amd64", "1", two["amd64"]), compared("arm64", "1", two["arm64"]))}}
+	out.Reset()
+	renderText(&out, res, true, true, style{})
+	assert.Equal(t, out.String(), "x_s 1 [amd64, arm64]\n- /usr/lib/<arch>-linux-<gnu>/a\n")
+	out.Reset()
+	renderText(&out, res, false, true, style{})
+	assert.Equal(t, out.String(), "x_s 1 [amd64]\n- /usr/lib/x86_64-linux-gnu/a\nx_s 1 [arm64]\n- /usr/lib/aarch64-linux-gnu/a\n")
+
+	// Sorted by the name drawn: /a/z folded is after /a-b.
+	res = &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed, compared("amd64", "1", lost("/a/z"), lost("/a-b")))}}
+	out.Reset()
+	renderText(&out, res, true, true, style{})
+	assert.Equal(t, out.String(), "x_s 1 [amd64]\n- /a-b\n- /a/z\n")
+
+	// Colour: the sign and the entry take the sign's, the glyphs are dim, a
+	// directory drawn only to hold others is plain.
+	res = &diff.Result{Slices: []diff.Slice{sl("x", "s", changes.Changed, compared("amd64", "1", lost("/a/b"), lost("/a/c")))}}
+	out.Reset()
+	renderText(&out, res, true, true, colours)
+	assert.Equal(t, out.String(), boxes("\x1b[1;34mx_s\x1b[0m 1 [amd64]\n  /a/\n\x1b[31m-\x1b[0m \x1b[2mT- \x1b[0m\x1b[31mb\x1b[0m\n\x1b[31m-\x1b[0m \x1b[2mL- \x1b[0m\x1b[31mc\x1b[0m\n"))
 }

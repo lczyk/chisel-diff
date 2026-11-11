@@ -24,7 +24,7 @@ import (
 // <head>" is an entry on both sides that changed, "!<path>: no content"
 // is an entry deleted from the base because the archive no longer has it. With group unset every
 // architecture is a block of its own with its real paths.
-func renderText(w io.Writer, res *diff.Result, group bool, st style) {
+func renderText(w io.Writer, res *diff.Result, group, tree bool, st style) {
 	absent := map[string]bool{} // packages whose own absence was told
 	for _, s := range res.Slices {
 		if len(s.Cuts) == 0 {
@@ -65,8 +65,14 @@ func renderText(w io.Writer, res *diff.Result, group bool, st style) {
 				continue
 			}
 			fmt.Fprintf(w, "%s%s%s%s [%s]\n", st.name, s.Shown(), st.reset, versions[g.Arches[0]], strings.Join(g.Arches, ", "))
-			for _, line := range lines(g, rawTags) {
-				fmt.Fprintln(w, st.line(line))
+			if tree {
+				for _, line := range treeLines(entries(g, rawTags), st) {
+					fmt.Fprintln(w, line)
+				}
+				continue
+			}
+			for _, e := range entries(g, rawTags) {
+				fmt.Fprintln(w, st.line(e.flat()))
 			}
 		}
 		for _, n := range order {
@@ -86,11 +92,11 @@ func renderText(w io.Writer, res *diff.Result, group bool, st style) {
 
 // style colours the text report. The zero value colours nothing.
 type style struct {
-	name, red, green, yellow, reset string
+	name, red, green, yellow, dim, reset string
 }
 
 // colours is the style for a terminal: a little, not a lot.
-var colours = style{name: "\x1b[1;34m", red: "\x1b[31m", green: "\x1b[32m", yellow: "\x1b[33m", reset: "\x1b[0m"}
+var colours = style{name: "\x1b[1;34m", red: "\x1b[31m", green: "\x1b[32m", yellow: "\x1b[33m", dim: "\x1b[2m", reset: "\x1b[0m"}
 
 // styleFor picks colours when w is a terminal and NO_COLOR is unset or empty
 // (https://no-color.org), else nothing.
@@ -112,11 +118,16 @@ func styleFor(w io.Writer) style {
 // line colours a finding by its sign: red lost, green gained, yellow
 // changed or deleted from the base.
 func (st style) line(l string) string {
-	c := map[byte]string{'-': st.red, '+': st.green, '~': st.yellow, '!': st.yellow}[l[0]]
+	return st.paint(l[0], l)
+}
+
+// paint colours s as the sign says, and leaves it plain for any other.
+func (st style) paint(sign byte, s string) string {
+	c := map[byte]string{'-': st.red, '+': st.green, '~': st.yellow, '!': st.yellow}[sign]
 	if c == "" {
-		return l
+		return s
 	}
-	return c + l + st.reset
+	return c + s + st.reset
 }
 
 // ownAbsence starts the note of a slice whose own package is on neither
@@ -203,21 +214,38 @@ func groups(arches []string, items [][]fold.Item, group bool) []fold.Group {
 	return out
 }
 
-// lines are a group's entries as the report prints them: lost, gained,
+// rline is one line of a block: its sign, its path as shown (a directory
+// with a trailing slash), and what is said after it, "" for a lost or gained
+// entry.
+type rline struct {
+	sign byte
+	path string
+	desc string
+}
+
+// flat is the entry as the report prints it, a line of its own.
+func (e rline) flat() string {
+	if e.desc == "" {
+		return string(e.sign) + e.path
+	}
+	return string(e.sign) + e.path + ": " + e.desc
+}
+
+// entries are a group's entries as the report prints them: lost, gained,
 // changed, deleted from the base, each sorted by path. A changed entry's
 // descriptions are each architecture's own when they all agree, so a group
 // of one shows its real symlink target, and the normalised ones otherwise.
-func lines(g fold.Group, rawTags map[string]string) []string {
-	entries := slices.Clone(g.Entries)
-	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Shown() < entries[j].Shown() })
-	var lost, gained, changed, pruned []string
-	for _, e := range entries {
+func entries(g fold.Group, rawTags map[string]string) []rline {
+	sorted := slices.Clone(g.Entries)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Shown() < sorted[j].Shown() })
+	var lost, gained, changed, pruned []rline
+	for _, e := range sorted {
 		change, b, h := splitTag(e.Tag)
 		switch change {
 		case diff.Lost:
-			lost = append(lost, "-"+e.Shown())
+			lost = append(lost, rline{'-', e.Shown(), ""})
 		case diff.Gained:
-			gained = append(gained, "+"+e.Shown())
+			gained = append(gained, rline{'+', e.Shown(), ""})
 		case diff.Changed:
 			if raw := rawTags[g.Arches[0]+"\x00"+e.Raw[0]]; raw != "" {
 				same := true
@@ -228,9 +256,9 @@ func lines(g fold.Group, rawTags map[string]string) []string {
 					_, b, h = splitTag(raw)
 				}
 			}
-			changed = append(changed, "~"+e.Shown()+": "+b+" -> "+h)
+			changed = append(changed, rline{'~', e.Shown(), b + " -> " + h})
 		default:
-			pruned = append(pruned, "!"+e.Shown()+": no content")
+			pruned = append(pruned, rline{'!', e.Shown(), "no content"})
 		}
 	}
 	return append(append(append(lost, gained...), changed...), pruned...)

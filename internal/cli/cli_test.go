@@ -102,6 +102,8 @@ func TestSpec(t *testing.T) {
 		"--no-index takes two release dir":      {flags{NoIndex: true}, []string{"/a"}},
 		"--no-index takes two directories and":  {flags{NoIndex: true, Release: "/r"}, []string{"/a", "/b"}},
 		"--name-status cuts nothing, so it can": {flags{NameStatus: true, FailMissing: true}, []string{"HEAD"}},
+		"--tree draws the text report":          {flags{Tree: true, JSON: true}, []string{"HEAD"}},
+		"--tree draws the text report, so":      {flags{Tree: true, NameStatus: true}, []string{"HEAD"}},
 	} {
 		_, _, err := c.f.spec(c.rest)
 		assert.Error(t, err, want)
