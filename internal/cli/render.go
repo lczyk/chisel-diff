@@ -270,25 +270,53 @@ func item(f diff.Finding, arch string) fold.Item {
 	return it
 }
 
+// noContent is how many of a slice's counted findings are no content ones.
+func noContent(seen map[string]bool) int {
+	n := 0
+	for key := range seen {
+		if strings.HasPrefix(key, string(diff.NoContent)+"\x00") {
+			n++
+		}
+	}
+	return n
+}
+
 // summary is the line -v ends with, shaped like git diff --shortstat:
-// "4 of 4 slices differ, 0 paths gained(+), 124 paths lost(-), 0
+// "4/4 slices differ on 2/7 arches, 0 paths gained(+), 124 paths lost(-), 0
 // changed(~)", and "1 no content(!)" when there is any. Slices are counted
 // once each whatever the number of architectures, one that differs on any of
-// them differs, and paths are counted per architecture as the text report
-// shows them, a directory left out when something under it is in the same
-// state. A count is coloured by whether it is good news.
+// them differs, and the arches are those any slice differs on, of those cut.
+// Paths are counted once a slice, however many architectures have them and
+// however the report splits them into blocks, a path that names the
+// architecture normalised and a directory left out when something under it
+// is in the same state. A phrase is coloured by whether it is good news.
 func summary(res *diff.Result, st style) string {
 	compared, differ, lost, gained, changed, pruned := 0, 0, 0, 0, 0, 0
+	cut, differing := map[string]bool{}, map[string]bool{}
 	for _, s := range res.Slices {
-		was, differs := false, false
+		was := false
+		seen := map[string]bool{} // change and normalised path
 		for _, c := range s.Cuts {
 			if c.Outcome == diff.Compared || c.Outcome == diff.Listed {
 				was = true
+				cut[c.Arch] = true
 			}
 			for _, f := range c.Findings {
 				if f.Dir && under(c.Findings, f) {
 					continue
 				}
+				if f.Change != diff.NoContent {
+					differing[c.Arch] = true
+				}
+				path := f.Path
+				if f.Dir {
+					path += "/"
+				}
+				key := string(f.Change) + "\x00" + fold.Normalise(path, c.Arch)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
 				switch f.Change {
 				case diff.Lost:
 					lost++
@@ -298,27 +326,27 @@ func summary(res *diff.Result, st style) string {
 					changed++
 				default:
 					pruned++
-					continue
 				}
-				differs = true
 			}
 		}
 		if was {
 			compared++
 		}
-		if differs {
+		if len(seen) > noContent(seen) {
 			differ++
 		}
 	}
-	paint := func(n int, zero, more string) string {
+	// paint colours a phrase by its count: zero's colour at none, more's
+	// else. The sign after it stays plain.
+	paint := func(n int, zero, more, phrase string) string {
 		c := more
 		if n == 0 {
 			c = zero
 		}
 		if c == "" {
-			return strconv.Itoa(n)
+			return phrase
 		}
-		return c + strconv.Itoa(n) + st.reset
+		return c + phrase + st.reset
 	}
 	plural := func(n int, one, many string) string {
 		if n == 1 {
@@ -326,13 +354,19 @@ func summary(res *diff.Result, st style) string {
 		}
 		return many
 	}
-	out := fmt.Sprintf("%s of %d %s %s, %s %s gained(+), %s %s lost(-), %s changed(~)",
-		paint(differ, st.green, st.yellow), compared, plural(compared, "slice", "slices"), plural(differ, "differs", "differ"),
-		paint(gained, "", st.green), plural(gained, "path", "paths"),
-		paint(lost, st.green, st.red), plural(lost, "path", "paths"),
-		paint(changed, "", st.yellow))
+	arches := ""
+	if len(cut) > 1 {
+		arches = fmt.Sprintf(" on %d/%d arches", len(differing), len(cut))
+	}
+	paths := func(n int) string { return strconv.Itoa(n) + " " + plural(n, "path", "paths") }
+	out := strings.Join([]string{
+		paint(differ, st.green, st.yellow, fmt.Sprintf("%d/%d %s %s", differ, compared, plural(compared, "slice", "slices"), plural(compared, "differs", "differ"))+arches),
+		paint(gained, st.yellow, st.green, paths(gained)+" gained") + "(+)",
+		paint(lost, st.green, st.red, paths(lost)+" lost") + "(-)",
+		paint(changed, st.green, st.yellow, strconv.Itoa(changed)+" changed") + "(~)",
+	}, ", ")
 	if pruned > 0 {
-		out += fmt.Sprintf(", %s no content(!)", paint(pruned, "", st.yellow))
+		out += ", " + paint(pruned, "", st.yellow, strconv.Itoa(pruned)+" no content") + "(!)"
 	}
 	return out
 }

@@ -100,10 +100,17 @@ bash_bins 5.2-1 [arm64]
 bash [riscv64]: not available
 `)
 
-	assert.Equal(t, summary(res, style{}), "2 of 3 slices differ, 5 paths gained(+), 5 paths lost(-), 0 changed(~)")
-	// Coloured by whether a count is good news.
-	assert.Equal(t, summary(res, colours), "\x1b[33m2\x1b[0m of 3 slices differ, \x1b[32m5\x1b[0m paths gained(+), \x1b[31m5\x1b[0m paths lost(-), 0 changed(~)")
-	assert.Equal(t, summary(&diff.Result{Slices: res.Slices[2:3]}, colours), "\x1b[32m0\x1b[0m of 0 slices differ, 0 paths gained(+), \x1b[32m0\x1b[0m paths lost(-), 0 changed(~)")
+	// A path is counted once a slice, however many arches have it and
+	// whether or not they agree: rc and b.so on both, only-arm on one.
+	assert.Equal(t, summary(res, style{}), "2/3 slices differ on 3/3 arches, 3 paths gained(+), 3 paths lost(-), 0 changed(~)")
+	// Coloured by whether a count is good news, the sign left plain.
+	assert.Equal(t, summary(res, colours), "\x1b[33m2/3 slices differ on 3/3 arches\x1b[0m, \x1b[32m3 paths gained\x1b[0m(+), \x1b[31m3 paths lost\x1b[0m(-), \x1b[32m0 changed\x1b[0m(~)")
+	// The arches any slice differs on, of those cut.
+	assert.Equal(t, summary(&diff.Result{Slices: []diff.Slice{sl("x", "y", changes.Changed, compared("amd64", "1"), compared("arm64", "1", lost("/z")))}}, style{}),
+		"1/1 slice differs on 1/2 arches, 0 paths gained(+), 1 path lost(-), 0 changed(~)")
+	// The verb follows the noun.
+	assert.Equal(t, summary(&diff.Result{Slices: res.Slices[:2]}, style{})[:22], "1/2 slices differ on 2")
+	assert.Equal(t, summary(&diff.Result{Slices: res.Slices[2:3]}, colours), "\x1b[32m0/0 slices differ\x1b[0m, \x1b[33m0 paths gained\x1b[0m(+), \x1b[32m0 paths lost\x1b[0m(-), \x1b[32m0 changed\x1b[0m(~)")
 }
 
 func TestRenderChanged(t *testing.T) {
@@ -131,7 +138,7 @@ func TestRenderChanged(t *testing.T) {
 ~/usr/bin/su: file 4755 -> file 0755
 ~/var/run/: dir -> symlink to /run
 `)
-	assert.Equal(t, summary(res, style{}), "1 of 1 slice differs, 0 paths gained(+), 2 paths lost(-), 6 changed(~)")
+	assert.Equal(t, summary(res, style{}), "1/1 slice differs on 2/2 arches, 0 paths gained(+), 1 path lost(-), 3 changed(~)")
 
 	// One architecture: its own symlink target, and paths sorted as paths.
 	// A target holding the arrow does not fold with one that does not.
@@ -170,7 +177,7 @@ func TestRenderColoured(t *testing.T) {
 	var out bytes.Buffer
 	renderText(&out, res, true, colours)
 	assert.Equal(t, out.String(), "\x1b[1;34mbash_bins\x1b[0m 5.2 [amd64]\n\x1b[31m-/a\x1b[0m\n\x1b[32m+/b\x1b[0m\n\x1b[33m!/c: no content\x1b[0m\n")
-	assert.Equal(t, summary(res, style{}), "1 of 1 slice differs, 1 path gained(+), 1 path lost(-), 0 changed(~), 1 no content(!)")
+	assert.Equal(t, summary(res, style{}), "1/1 slice differs, 1 path gained(+), 1 path lost(-), 0 changed(~), 1 no content(!)")
 	// Not a terminal: no colour.
 	assert.Equal(t, styleFor(&out), style{})
 }
