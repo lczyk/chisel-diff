@@ -1,19 +1,19 @@
 package listing
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/canonical/chisel/public/manifest"
 	"github.com/klauspost/compress/zstd"
 )
 
-// Origins reads the manifest chisel wrote at path, a zstd jsonwall, for the
-// slices each path comes from: path, with no trailing slash, to the slices
-// chisel says it came from, as <package>_<slice>, sorted. A directory chisel
-// made only to hold others is not in it.
+// Origins reads the manifest chisel wrote at path, zstd-compressed as chisel
+// writes it, with chisel's own reader, for the slices each path comes from:
+// path, with no trailing slash, to the slices chisel says it came from, as
+// <package>_<slice>, sorted. A directory chisel made only to hold others is
+// not in it.
 func Origins(path string) (map[string][]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -25,23 +25,16 @@ func Origins(path string) (map[string][]string, error) {
 		return nil, err
 	}
 	defer dec.Close()
-	out := map[string][]string{}
-	sc := bufio.NewScanner(dec)
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for sc.Scan() {
-		var row struct {
-			Kind   string   `json:"kind"`
-			Path   string   `json:"path"`
-			Slices []string `json:"slices"`
-		}
-		if err := json.Unmarshal(sc.Bytes(), &row); err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
-		}
-		if row.Kind == "path" {
-			out[strings.TrimSuffix(row.Path, "/")] = row.Slices
-		}
+	m, err := manifest.Read(dec)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	if err := sc.Err(); err != nil {
+	out := map[string][]string{}
+	err = m.IteratePaths("", func(p *manifest.Path) error {
+		out[strings.TrimSuffix(p.Path, "/")] = p.Slices
+		return nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return out, nil

@@ -6,30 +6,40 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/canonical/chisel/public/jsonwall"
+	"github.com/canonical/chisel/public/manifest"
 	"github.com/klauspost/compress/zstd"
 	"github.com/lczyk/assert"
 )
 
-func TestOrigins(t *testing.T) {
-	// As chisel writes it: a header, then rows of every kind sorted.
-	rows := `{"jsonwall":"1.0","schema":"1.0","count":6}
-{"kind":"content","slice":"libc6_libs","path":"/usr/lib/x86_64-linux-gnu/libc.so.6"}
-{"kind":"package","name":"libc6","version":"2.39","sha256":"ff","arch":"amd64"}
-{"kind":"path","path":"/usr/lib/","mode":"0755","slices":["base-files_lib"]}
-{"kind":"path","path":"/usr/lib/x86_64-linux-gnu/libc.so.6","mode":"0755","slices":["libc6_libs"],"sha256":"3a","size":2}
-{"kind":"path","path":"/etc/shared","mode":"0644","slices":["a_one","b_two"]}
-{"kind":"slice","name":"libc6_libs"}
-`
+// wall writes rows as chisel writes a manifest, a zstd jsonwall of schema.
+func wall(t *testing.T, schema string, rows ...any) string {
+	t.Helper()
+	w := jsonwall.NewDBWriter(&jsonwall.DBWriterOptions{Schema: schema})
+	for _, r := range rows {
+		assert.NoError(t, w.Add(r))
+	}
 	path := filepath.Join(t.TempDir(), "manifest.wall")
 	f, err := os.Create(path)
 	assert.NoError(t, err)
 	enc, err := zstd.NewWriter(f)
 	assert.NoError(t, err)
-	_, err = enc.Write([]byte(rows))
+	_, err = w.WriteTo(enc)
 	assert.NoError(t, err)
 	assert.NoError(t, enc.Close())
 	assert.NoError(t, f.Close())
+	return path
+}
 
+func TestOrigins(t *testing.T) {
+	path := wall(t, manifest.Schema,
+		&manifest.Content{Kind: "content", Slice: "libc6_libs", Path: "/usr/lib/x86_64-linux-gnu/libc.so.6"},
+		&manifest.Package{Kind: "package", Name: "libc6", Version: "2.39", Digest: "ff", Arch: "amd64"},
+		&manifest.Path{Kind: "path", Path: "/usr/lib/", Mode: "0755", Slices: []string{"base-files_lib"}},
+		&manifest.Path{Kind: "path", Path: "/usr/lib/x86_64-linux-gnu/libc.so.6", Mode: "0755", Slices: []string{"libc6_libs"}},
+		&manifest.Path{Kind: "path", Path: "/etc/shared", Mode: "0644", Slices: []string{"a_one", "b_two"}},
+		&manifest.Slice{Kind: "slice", Name: "libc6_libs"},
+	)
 	got, err := Origins(path)
 	assert.NoError(t, err)
 	assert.That(t, reflect.DeepEqual(got, map[string][]string{
@@ -37,6 +47,10 @@ func TestOrigins(t *testing.T) {
 		"/usr/lib/x86_64-linux-gnu/libc.so.6": {"libc6_libs"},
 		"/etc/shared":                         {"a_one", "b_two"},
 	}), got)
+
+	// A schema chisel's reader does not know is an error, not a guess.
+	_, err = Origins(wall(t, "9.9", &manifest.Path{Kind: "path", Path: "/x", Slices: []string{"a_b"}}))
+	assert.Error(t, err, `unknown schema version "9.9"`)
 
 	_, err = Origins(filepath.Join(t.TempDir(), "none"))
 	assert.ErrorIs(t, err, os.ErrNotExist)

@@ -3,6 +3,7 @@ module github.com/lczyk/chisel-diff
 go 1.26.0
 
 require (
+	github.com/canonical/chisel v1.5.1
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/klauspost/compress v1.18.0
 	github.com/lczyk/assert v0.7.2
