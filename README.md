@@ -1,5 +1,11 @@
 # chisel-diff
 
+[![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?logo=ubuntu&logoColor=white)](https://ubuntu.com)
+[![chisel](https://img.shields.io/badge/%F0%9F%94%A8-chisel-E95420)](https://github.com/canonical/chisel)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/lczyk/chisel-diff)
+![GitHub Tag](https://img.shields.io/github/v/tag/lczyk/chisel-diff?filter=v*&sort=semver&label=release)
+[![lint_and_test](https://github.com/lczyk/chisel-diff/actions/workflows/lint_and_test.yml/badge.svg)](https://github.com/lczyk/chisel-diff/actions/workflows/lint_and_test.yml)
+
 `git diff` for what [chisel](https://github.com/canonical/chisel) slices deliver.
 
 a development tool for [chisel-releases](https://github.com/canonical/chisel-releases) work, and a sister of [chisel-coverage](https://github.com/lczyk/chisel-coverage), [chisel-file](https://github.com/lczyk/chisel-file) and [chisel-proxy](https://github.com/lczyk/chisel-proxy). for two revisions of a release it cuts the slices whose definition changed, from both, with the real chisel, and reports the paths each lost, gained or changed, per architecture.

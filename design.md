@@ -205,7 +205,7 @@ a real cut costs more than a stripped one. on a warm cache it averaged 2.1s over
 so the tool cuts little and in parallel:
 
 - unless `--slice` picks more, only `changed` slices are cut, and with them the one or two slices that list a path given away with `prefer`. on real history that is a handful per PR.
-- the worker pool, the private cache views that keep concurrent chisels apart (canonical/chisel#340) and the verbose lines are chisel-coverage's, moved into `pkg/pool` so that a unit names its own release dir. see `design-pkg.md`.
+- the worker pool, the private cache views that keep concurrent chisels apart (canonical/chisel#340) and the verbose lines are chisel-coverage's, moved into `pkg/pool` so that a unit names its own release dir. see the library section of [chisel-coverage's design](https://github.com/lczyk/chisel-coverage/blob/main/design.md).
 - both sides go through one pool, so a view is seeded once for the run.
 - the units of the lead arch run first and alone, then the rest, as in chisel-coverage. the lead pass leaves every `arch: all` deb in the cache.
 
