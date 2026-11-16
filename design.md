@@ -196,7 +196,7 @@ a regular file's mode is compared, a directory's is not, since a generated direc
 
 ### folding
 
-`chisel-coverage/pkg/fold` with the state as what must agree: every finding is an item with `Key` the normalised path, `Raw` the real one, and `Tag` the state, for a `changed` entry with the two descriptions in it (symlink targets normalised like paths, raw ones in `RawTag`). each set of arches that shares findings is a block, most arches first. a block of one arch shows its real paths. `--no-group` makes every arch its own block with real paths. unlike the sister tools there is no special case for an `arch: all` package, since a real cut holds paths of other debs too.
+`chisel-coverage/pkg/fold` with the state as what must agree: every finding is an item with `Key` the normalised path, `Raw` the real one, and `Tag` the state, for a `changed` entry with the two descriptions in it (symlink targets normalised like paths, raw ones in `RawTag`). each set of arches that shares findings is a block, most arches first. only arches whose header says the same version fold, as chisel-coverage and chisel-file have it: a block names one version, and amd64 and the ports archives do not always publish together. a block of one arch shows its real paths. `--no-group` makes every arch its own block with real paths. unlike the sister tools there is no special case for an `arch: all` package, since a real cut holds paths of other debs too.
 
 ## scheduling
 
