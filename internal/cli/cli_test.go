@@ -308,5 +308,5 @@ func TestMainExitCodes(t *testing.T) {
 func TestFileVersion(t *testing.T) {
 	assert.Equal(t, fileVersion("# a comment\n\n 1.2.3 \n4.5.6\n"), "1.2.3")
 	assert.Equal(t, fileVersion("# only a comment\n"), "")
-	assert.That(t, strings.Count(fileVersion("# VERSION\n0.1.0\n"), ".") == 2)
+	assert.That(t, strings.Count(fileVersion("# VERSION\n0.1.1\n"), ".") == 2)
 }
