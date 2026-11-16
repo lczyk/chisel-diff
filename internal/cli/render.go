@@ -62,7 +62,7 @@ func renderText(w io.Writer, res *diff.Result, group, tree bool, from string, st
 			}
 			notes[note] = append(notes[note], c.Arch)
 		}
-		for _, g := range groups(arches, items, group) {
+		for _, g := range groups(arches, items, versions, group) {
 			if len(g.Entries) == 0 {
 				continue
 			}
@@ -204,15 +204,43 @@ func under(findings []diff.Finding, dir diff.Finding) bool {
 }
 
 // groups folds the architectures that agree, or with group unset keeps each
-// one apart with its real paths.
-func groups(arches []string, items [][]fold.Item, group bool) []fold.Group {
-	if group {
-		return fold.Fold(arches, items)
-	}
+// one apart with its real paths. Only architectures whose header says the
+// same version fold, as versions has it: a block names one version, and a
+// path lost at one version is not the same finding as at another. The
+// groups are in fold's order, most architectures first, then as the
+// architectures were given.
+func groups(arches []string, items [][]fold.Item, versions map[string]string, group bool) []fold.Group {
 	var out []fold.Group
-	for i, arch := range arches {
-		out = append(out, fold.Fold([]string{arch}, [][]fold.Item{items[i]})...)
+	if !group {
+		for i, arch := range arches {
+			out = append(out, fold.Fold([]string{arch}, [][]fold.Item{items[i]})...)
+		}
+		return out
 	}
+	var order []string
+	of := map[string][]int{} // version -> its architectures, by index
+	for i, arch := range arches {
+		v := versions[arch]
+		if _, ok := of[v]; !ok {
+			order = append(order, v)
+		}
+		of[v] = append(of[v], i)
+	}
+	for _, v := range order {
+		var as []string
+		var its [][]fold.Item
+		for _, i := range of[v] {
+			as, its = append(as, arches[i]), append(its, items[i])
+		}
+		out = append(out, fold.Fold(as, its)...)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i].Arches, out[j].Arches
+		if len(a) != len(b) {
+			return len(a) > len(b)
+		}
+		return slices.Index(arches, a[0]) < slices.Index(arches, b[0])
+	})
 	return out
 }
 

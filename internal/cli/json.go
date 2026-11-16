@@ -152,7 +152,9 @@ func renderJSON(w io.Writer, run jsonRun, plan *changes.Result, slices []diff.Sl
 		var arches []string
 		var items [][]fold.Item
 		byRaw := map[string]diff.Finding{} // arch and raw path -> the finding
+		versions := map[string]string{}
 		for _, c := range s.Cuts {
+			versions[c.Arch] = version(c)
 			js.Cuts = append(js.Cuts, jsonCut{Arch: c.Arch, Outcome: c.Outcome, Base: cutSide(c.Base), Head: cutSide(c.Head)})
 			arches = append(arches, c.Arch)
 			var its []fold.Item
@@ -163,7 +165,7 @@ func renderJSON(w io.Writer, run jsonRun, plan *changes.Result, slices []diff.Sl
 			}
 			items = append(items, its)
 		}
-		for _, g := range groups(arches, items, group) {
+		for _, g := range groups(arches, items, versions, group) {
 			for _, e := range g.Entries {
 				change, _, _, _ := splitTag(e.Tag)
 				f := jsonFinding{Path: e.Shown(), Change: change, Arches: g.Arches}

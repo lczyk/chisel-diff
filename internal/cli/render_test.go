@@ -381,3 +381,23 @@ func TestRenderOrigins(t *testing.T) {
 	assert.NoError(t, renderJSON(&out, jsonRun{}, &changes.Result{}, res.Slices, true, true))
 	assert.ContainsString(t, out.String(), `"arches":["amd64","s390x"],"raw":{"amd64":"/usr/lib/x86_64-linux-gnu/a","s390x":"/usr/lib/s390x-linux-gnu/a"},"from":{"base":["p_libs"]}`)
 }
+
+// Architectures fold only where the header's version is the same: a block
+// names one version, and the same path lost at another is another block.
+func TestRenderSplitsOnVersion(t *testing.T) {
+	path := func(triplet string) diff.Finding { return lost("/usr/lib/" + triplet + "/libx.so.1") }
+	res := &diff.Result{Slices: []diff.Slice{sl("x", "libs", changes.Changed,
+		compared("amd64", "1.2-3", path("x86_64-linux-gnu")),
+		compared("arm64", "1.2-4", path("aarch64-linux-gnu")),
+		compared("armhf", "1.2-4", path("arm-linux-gnueabihf")),
+		compared("i386", "1.2-3", path("i386-linux-gnu")),
+	)}}
+	var b bytes.Buffer
+	renderText(&b, res, true, false, "", style{})
+	want := `x_libs 1.2-3 [amd64, i386]
+-/usr/lib/<arch>-linux-<gnu>/libx.so.1
+x_libs 1.2-4 [arm64, armhf]
+-/usr/lib/<arch>-linux-<gnu>/libx.so.1
+`
+	assert.Equal(t, b.String(), want)
+}
