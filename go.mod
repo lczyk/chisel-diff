@@ -7,7 +7,7 @@ require (
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/klauspost/compress v1.18.0
 	github.com/lczyk/assert v0.7.2
-	github.com/lczyk/chisel-coverage/pkg v0.8.0
+	github.com/lczyk/chisel-coverage/pkg v0.9.0
 	github.com/lczyk/chisel-proxy/pkg v0.5.0
 	github.com/lczyk/version/go v0.6.0
 	gopkg.in/yaml.v3 v3.0.1
