@@ -12,6 +12,7 @@ import (
 
 	"github.com/lczyk/assert"
 
+	chiseldiff "github.com/lczyk/chisel-diff"
 	"github.com/lczyk/chisel-diff/internal/sides"
 )
 
@@ -308,5 +309,6 @@ func TestMainExitCodes(t *testing.T) {
 func TestFileVersion(t *testing.T) {
 	assert.Equal(t, fileVersion("# a comment\n\n 1.2.3 \n4.5.6\n"), "1.2.3")
 	assert.Equal(t, fileVersion("# only a comment\n"), "")
-	assert.That(t, strings.Count(fileVersion("# VERSION\n0.1.2\n"), ".") == 2)
+	// The tool's own VERSION file, whatever version it is at.
+	assert.That(t, strings.Count(fileVersion(chiseldiff.VersionFile), ".") == 2)
 }
