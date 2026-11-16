@@ -98,7 +98,7 @@ func TestNameStatus(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code %d", code)
 	}
-	if out != "dash bins: changed\n" {
+	if out != "dash_bins: changed\n" {
 		t.Fatalf("unexpected report:\n%s", out)
 	}
 }
@@ -116,7 +116,7 @@ func TestLostPath(t *testing.T) {
 		t.Fatalf("exit code %d, expected 1 for a lost path:\n%s", code, out)
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 2 || !strings.HasPrefix(lines[0], "dash ") || !strings.Contains(lines[0], " bins [") || lines[1] != "-/usr/bin/sh" {
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "dash_bins ") || !strings.Contains(lines[0], " [") || lines[1] != "-/usr/bin/sh" {
 		t.Fatalf("unexpected report:\n%s", out)
 	}
 
