@@ -1,11 +1,11 @@
 module github.com/lczyk/chisel-diff
 
-go 1.26.0
+go 1.24.0
 
 require (
-	github.com/canonical/chisel v1.5.1
+	github.com/canonical/chisel v1.2.0
 	github.com/jessevdk/go-flags v1.6.1
-	github.com/klauspost/compress v1.18.0
+	github.com/klauspost/compress v1.19.2
 	github.com/lczyk/assert v0.7.2
 	github.com/lczyk/chisel-coverage/pkg v0.10.0
 	github.com/lczyk/chisel-proxy/pkg v0.5.0
